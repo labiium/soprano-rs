@@ -1,0 +1,89 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ML Models and Data
+/models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.h5
+*.pb
+
+# Generated Audio
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+*.aac
+
+# Test outputs
+/test_output/
+/output/
+/samples/
+*.npy
+*.npz
+
+# Python (for scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+.DS_Store
+.directory
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+.cache/
+
+# Coverage
+*.profraw
+*.profdata
+/target-cov/
+
+# Benchmark results
+/benchmark_results/
+*.bench

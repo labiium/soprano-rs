@@ -1,0 +1,135 @@
+[package]
+name = "soprano-tts"
+version = "0.1.0"
+edition = "2021"
+authors = ["Soprano TTS Team"]
+description = "High-performance Rust TTS server using Candle and Soprano model"
+license = "Apache-2.0"
+
+[profile.dev]
+# ML workloads are extremely slow with Rust's default debug settings.
+# We keep debug symbols but enable optimization so `cargo run` is usable.
+opt-level = 3
+debug = 1
+overflow-checks = false
+
+[profile.test]
+opt-level = 2
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1.38", features = ["full", "parking_lot"] }
+
+# Web framework
+axum = { version = "0.7", features = ["ws"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ML - Candle
+candle-core = { version = "0.8", features = ["cuda"] }
+candle-nn = { version = "0.8", features = ["cuda"] }
+candle-transformers = { version = "0.8", features = ["cuda"] }
+candle-flash-attn = { version = "0.8", optional = true }
+
+# Tokenization
+tokenizers = "0.20"
+
+# Audio processing
+hound = "3.5"
+
+# Math
+num-complex = "0.4"
+realfft = "3.4"
+rustfft = "6.2"
+
+# Text processing
+regex = "1.10"
+unicode-normalization = "0.1"
+unicode-segmentation = "1.11"
+
+# CLI and config
+clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Async utilities
+futures = "0.3"
+futures-util = "0.3"
+async-trait = "0.1"
+
+# Concurrency
+parking_lot = "0.12"
+crossbeam = "0.8"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+bytes = "1"
+bytemuck = "1.14"
+dirs = "5.0"
+
+# Model downloading and HuggingFace integration
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"], optional = true }
+hf-hub = { version = "0.3", optional = true }
+indicatif = { version = "0.17", optional = true }
+
+# File format support
+zip = "0.6"
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+memmap2 = "0.9"
+walkdir = "2.5"
+
+# SafeTensors format (included in candle-core)
+safetensors = "0.4.5"
+
+[features]
+default = ["model-download"]
+model-download = ["dep:reqwest", "dep:indicatif", "dep:hf-hub", "dep:sha2", "dep:hex"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "flash-attn"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+flash-attn = ["dep:candle-flash-attn"]
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+tempfile = "3.10"
+
+# Test dependencies for comprehensive testing
+tokio-tungstenite = "0.23"
+rand = "0.8"
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+
+[[bench]]
+name = "tts_benchmark"
+harness = false
+
+[[bin]]
+name = "soprano-tts"
+path = "src/main.rs"
+
+[[example]]
+name = "generate_samples"
+path = "examples/generate_samples.rs"
+
+[[example]]
+name = "debug_comparison"
+path = "examples/debug_comparison.rs"
+
+[[example]]
+name = "test_rmsnorm"
+path = "examples/test_rmsnorm.rs"
+
+[[example]]
+name = "test_forward"
+path = "examples/test_forward.rs"
