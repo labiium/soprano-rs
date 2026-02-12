@@ -8,10 +8,10 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tokio::runtime::Runtime;
 
-use soprano_tts::chunker::{run_chunker, ChunkerInput};
-use soprano_tts::config::{ChunkerConfig, GenerationConfig, StreamConfig};
-use soprano_tts::normalization::clean_text;
-use soprano_tts::splitter::split_and_recombine_text;
+use soprano::chunker::{run_chunker, ChunkerInput};
+use soprano::config::{ChunkerConfig, GenerationConfig, StreamConfig};
+use soprano::normalization::clean_text;
+use soprano::splitter::split_and_recombine_text;
 
 /// Helper to create a Tokio runtime for async benchmarks
 fn tokio_runtime() -> Runtime {
@@ -227,12 +227,13 @@ fn bench_audio_operations(c: &mut Criterion) {
 
 /// Benchmark protocol serialization
 fn bench_protocol_serialization(c: &mut Criterion) {
-    use soprano_tts::protocol::{AudioHeader, ClientMessage, ServerMessage};
+    use soprano::protocol::{AudioHeader, ClientMessage, ServerMessage};
 
     let mut group = c.benchmark_group("protocol");
 
     group.bench_function("serialize_client_config", |b| {
         let msg = ClientMessage::Config {
+            engine: Some(soprano::config::EngineId::Soprano),
             voice_path: Some("/path/to/voice".to_string()),
             speed: Some(1.0),
             language_id: Some("en".to_string()),

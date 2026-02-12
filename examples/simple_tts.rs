@@ -10,7 +10,7 @@
 //!   cargo run --example simple_tts
 
 use clap::Parser;
-use soprano_tts::{
+use soprano::{
     config::{parse_device, GenerationConfig},
     tts::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest},
 };
@@ -230,7 +230,7 @@ fn save_wav(
 /// Example: Batch processing
 #[allow(dead_code)]
 async fn batch_example(
-    engine: &soprano_tts::tts::SopranoTtsEngine,
+    engine: &soprano::tts::SopranoTtsEngine,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let texts = vec![
         "First sentence to synthesize.",
@@ -273,7 +273,7 @@ async fn batch_example(
 /// Example: Streaming synthesis
 #[allow(dead_code)]
 async fn streaming_example(
-    engine: &soprano_tts::tts::SopranoTtsEngine,
+    engine: &soprano::tts::SopranoTtsEngine,
     text: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tokio::time::{timeout, Duration};

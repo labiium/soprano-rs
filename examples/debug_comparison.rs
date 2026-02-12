@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use candle_core::Device;
 use clap::Parser;
-use soprano_tts::model::{DebugConfig, GenerationConfig, SopranoModel};
+use soprano::model::{DebugConfig, GenerationConfig, SopranoModel};
 
 #[derive(Parser)]
 #[command(name = "debug_comparison")]
@@ -128,7 +128,7 @@ fn main() -> anyhow::Result<()> {
                     .unwrap_or(false)
             })
             .collect();
-        files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+        files.sort_by_key(|a| a.file_name());
 
         for entry in files {
             let path = entry.path();

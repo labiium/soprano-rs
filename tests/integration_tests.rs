@@ -10,10 +10,10 @@ use common::{audio_validation, default_model_dir, require_model_files};
 use std::sync::Arc;
 use std::time::Duration;
 
-use soprano_tts::config::{parse_device, GenerationConfig, StreamConfig};
-use soprano_tts::protocol::{ClientMessage, ServerMessage};
-use soprano_tts::server::AppState;
-use soprano_tts::tts::{SopranoEngineConfig, SopranoTtsEngine, TtsEngine, TtsRequest};
+use soprano::config::{parse_device, GenerationConfig, StreamConfig};
+use soprano::protocol::{ClientMessage, ServerMessage};
+use soprano::server::AppState;
+use soprano::tts::{SopranoEngineConfig, SopranoTtsEngine, TtsEngine, TtsRequest};
 
 #[tokio::test]
 async fn test_protocol_roundtrip() {
@@ -37,7 +37,7 @@ async fn test_engine_synthesize_real_model() {
     let model_dir = default_model_dir();
     require_model_files(&model_dir);
 
-    let device = if soprano_tts::cuda_available() {
+    let device = if soprano::cuda_available() {
         parse_device("cuda")
     } else {
         parse_device("cpu")
@@ -87,7 +87,7 @@ async fn test_server_state_construction_real_engine() {
     let model_dir = default_model_dir();
     require_model_files(&model_dir);
 
-    let device = if soprano_tts::cuda_available() {
+    let device = if soprano::cuda_available() {
         parse_device("cuda")
     } else {
         parse_device("cpu")

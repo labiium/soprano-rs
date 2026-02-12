@@ -7,9 +7,9 @@ use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use std::path::PathBuf;
 
-// Import from the soprano-tts crate
-use soprano_tts::config::DecoderConfig;
-use soprano_tts::decoder::SopranoDecoder;
+// Import from the soprano crate
+use soprano::config::DecoderConfig;
+use soprano::decoder::SopranoDecoder;
 
 /// Test that decoder.pth loads without errors
 #[test]

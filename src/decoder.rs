@@ -121,6 +121,7 @@ impl ConvNeXtBlock {
             groups: dim,
             stride: 1,
             dilation: 1,
+            cudnn_fwd_algo: None,
         };
         let dwconv = candle_nn::conv1d(dim, dim, dw_kernel_size, dwconv_config, vb.pp("dwconv"))?;
 
@@ -385,6 +386,7 @@ impl VocosBackbone {
             groups: 1,
             stride: 1,
             dilation: 1,
+            cudnn_fwd_algo: None,
         };
         let embed = candle_nn::conv1d(
             input_channels,

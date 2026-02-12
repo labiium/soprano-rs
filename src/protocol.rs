@@ -316,12 +316,12 @@ mod tests {
 
     #[test]
     fn test_client_message_config_with_engine() {
-        let json = r#"{"type":"config","engine":"chatterbox","speed":1.0}"#;
+        let json = r#"{"type":"config","engine":"soprano","speed":1.0}"#;
         let msg: ClientMessage = serde_json::from_str(json).unwrap();
 
         match msg {
             ClientMessage::Config { engine, speed, .. } => {
-                assert_eq!(engine, Some(EngineId::Chatterbox));
+                assert_eq!(engine, Some(EngineId::Soprano));
                 assert_eq!(speed, Some(1.0));
             }
             _ => panic!("Expected Config message"),

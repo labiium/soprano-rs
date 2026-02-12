@@ -11,15 +11,15 @@ use common::{audio_validation, default_model_dir, require_model_files};
 
 use std::time::Duration;
 
-use soprano_tts::config::{parse_device, GenerationConfig};
-use soprano_tts::tts::{SopranoEngineConfig, SopranoTtsEngine, TtsEngine, TtsRequest};
+use soprano::config::{parse_device, GenerationConfig};
+use soprano::tts::{SopranoEngineConfig, SopranoTtsEngine, TtsEngine, TtsRequest};
 
 #[tokio::test]
 async fn test_real_model_generates_nontrivial_audio() {
     let model_dir = default_model_dir();
     require_model_files(&model_dir);
 
-    let device = if soprano_tts::cuda_available() {
+    let device = if soprano::cuda_available() {
         parse_device("cuda")
     } else {
         parse_device("cpu")

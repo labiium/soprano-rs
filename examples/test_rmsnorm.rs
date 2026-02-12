@@ -101,10 +101,7 @@ fn main() -> anyhow::Result<()> {
     println!("\n======================================================================");
     println!("Test Case 1: Random Normal Input");
     let input1_data: Vec<f32> = (0..(2 * 10 * hidden_size))
-        .map(|i| {
-            let x = (i as f32 * 0.12345).sin() * 2.0;
-            x
-        })
+        .map(|i| (i as f32 * 0.12345).sin() * 2.0)
         .collect();
     let input1 = Tensor::from_vec(input1_data, (2, 10, hidden_size), &device)?;
     let result1 = run_test("random_normal", &input1, &weight, eps)?;
@@ -118,7 +115,7 @@ fn main() -> anyhow::Result<()> {
     // Test 3: Small values
     println!("\n======================================================================");
     println!("Test Case 3: Small Values");
-    let input3_data: Vec<f32> = (0..(1 * 5 * hidden_size))
+    let input3_data: Vec<f32> = (0..(5 * hidden_size))
         .map(|i| (i as f32 * 0.12345).sin() * 0.02)
         .collect();
     let input3 = Tensor::from_vec(input3_data, (1, 5, hidden_size), &device)?;
@@ -127,7 +124,7 @@ fn main() -> anyhow::Result<()> {
     // Test 4: Large values
     println!("\n======================================================================");
     println!("Test Case 4: Large Values");
-    let input4_data: Vec<f32> = (0..(1 * 5 * hidden_size))
+    let input4_data: Vec<f32> = (0..(5 * hidden_size))
         .map(|i| (i as f32 * 0.12345).sin() * 20.0)
         .collect();
     let input4 = Tensor::from_vec(input4_data, (1, 5, hidden_size), &device)?;

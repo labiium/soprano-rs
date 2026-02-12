@@ -8,11 +8,11 @@
 //! - `generate` - Generate audio from text
 //!
 //! Usage:
-//!   soprano-tts serve --port 8080
-//!   soprano-tts download ekwek/Soprano-1.1-80M
-//!   soprano-tts list
-//!   soprano-tts cache
-//!   soprano-tts generate --text "Hello world"
+//!   soprano serve --port 8080
+//!   soprano download ekwek/Soprano-1.1-80M
+//!   soprano list
+//!   soprano cache
+//!   soprano generate --text "Hello world"
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,10 +24,10 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tracing::{error, info, warn, Level};
 
-use soprano_tts::{
+use soprano::{
     config::{
-        init_tracing, load_dotenv, parse_device, Cli, Commands, DownloadArgs, EngineId,
-        GenerateArgs, GenerationConfig, ServeArgs, StreamConfig,
+        init_tracing, load_dotenv, parse_device, Cli, Commands, DownloadArgs, GenerateArgs,
+        GenerationConfig, ServeArgs, StreamConfig,
     },
     model_loader::{cuda_available, list_available_models, ModelCache},
     normalization::clean_text,
@@ -68,7 +68,7 @@ async fn run_server(args: ServeArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     info!(
         version = env!("CARGO_PKG_VERSION"),
-        "starting soprano-tts server"
+        "starting soprano server"
     );
 
     // Log configuration
@@ -147,14 +147,6 @@ async fn initialize_tts_engine(
     args: &ServeArgs,
     device: candle_core::Device,
 ) -> Result<Arc<dyn TtsEngine>, Box<dyn std::error::Error>> {
-    if args.engine != EngineId::Soprano {
-        return Err(format!(
-            "engine '{}' is not implemented yet for server mode",
-            args.engine.as_str()
-        )
-        .into());
-    }
-
     // Check if model download is enabled and needed
     let model_path = if args.download {
         let cache_dir = args.cache_dir();
@@ -293,10 +285,10 @@ async fn run_download(args: DownloadArgs) -> Result<(), Box<dyn std::error::Erro
     }
 
     // No command specified, show help
-    println!("Usage: soprano-tts download <MODEL_ID>");
+    println!("Usage: soprano download <MODEL_ID>");
     println!();
     println!("Use --help for more information");
-    println!("Use 'soprano-tts list' to see available models");
+    println!("Use 'soprano list' to see available models");
 
     Ok(())
 }
@@ -307,7 +299,7 @@ async fn download_single_model(
     model_id: &str,
     args: &DownloadArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use soprano_tts::model_loader::{download_model, DownloadConfig};
+    use soprano::model_loader::{download_model, DownloadConfig};
 
     info!("Downloading model: {}", model_id);
     info!("CUDA available: {}", cuda_available());
@@ -361,7 +353,7 @@ async fn download_single_model(
     // Verify model can be loaded
     info!("Verifying model can be loaded...");
 
-    match soprano_tts::model_loader::load_model_from_path(&model_path) {
+    match soprano::model_loader::load_model_from_path(&model_path) {
         Ok(format) => {
             info!("Model verified successfully! Format: {:?}", format);
         }
@@ -400,7 +392,7 @@ async fn run_list() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Download a model with:");
-    println!("  soprano-tts download <MODEL_ID>");
+    println!("  soprano download <MODEL_ID>");
 
     Ok(())
 }
@@ -530,7 +522,7 @@ async fn verify_model(
     // Try to load the model
     info!("Attempting to verify model format...");
 
-    match soprano_tts::model_loader::load_model_from_path(&model_path) {
+    match soprano::model_loader::load_model_from_path(&model_path) {
         Ok(format) => {
             println!("Model verified successfully!");
             println!("Format: {:?}", format);
@@ -546,14 +538,6 @@ async fn verify_model(
 
 /// Run the generate subcommand
 async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
-    if args.engine != EngineId::Soprano {
-        return Err(format!(
-            "engine '{}' is not implemented yet for generate mode",
-            args.engine.as_str()
-        )
-        .into());
-    }
-
     println!("╔════════════════════════════════════════╗");
     println!("║     Soprano TTS Sample Generator       ║");
     println!("╚════════════════════════════════════════╝");
@@ -565,7 +549,7 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
         .clone()
         .or_else(get_default_model_path)
         .ok_or_else(|| {
-            "Model not found. Download with: soprano-tts download ekwek/Soprano-1.1-80M".to_string()
+            "Model not found. Download with: soprano download ekwek/Soprano-1.1-80M".to_string()
         })?;
 
     // Determine device
@@ -595,7 +579,7 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
     if !model_path.exists() {
         eprintln!("\nError: Model path does not exist: {:?}", model_path);
         eprintln!("\nPlease download the model first:");
-        eprintln!("  soprano-tts download ekwek/Soprano-1.1-80M");
+        eprintln!("  soprano download ekwek/Soprano-1.1-80M");
         std::process::exit(1);
     }
 
@@ -619,7 +603,7 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
             eprintln!("  - {}", file);
         }
         eprintln!("\nPlease download the model first:");
-        eprintln!("  soprano-tts download ekwek/Soprano-1.1-80M");
+        eprintln!("  soprano download ekwek/Soprano-1.1-80M");
         std::process::exit(1);
     }
 
@@ -997,16 +981,16 @@ mod tests {
 
     #[test]
     fn test_cli_parsing() {
-        let cli = Cli::parse_from(["soprano-tts", "serve", "--port", "8888"]);
+        let cli = Cli::parse_from(["soprano", "serve", "--port", "8888"]);
         assert!(matches!(cli.command, Some(Commands::Serve(args)) if args.port == 8888));
     }
 
     #[test]
     fn test_cli_device_options() {
-        let cli_cuda = Cli::parse_from(["soprano-tts", "serve", "--device", "cuda"]);
+        let cli_cuda = Cli::parse_from(["soprano", "serve", "--device", "cuda"]);
         assert!(matches!(cli_cuda.command, Some(Commands::Serve(args)) if args.device == "cuda"));
 
-        let cli_cpu = Cli::parse_from(["soprano-tts", "serve", "--device", "cpu"]);
+        let cli_cpu = Cli::parse_from(["soprano", "serve", "--device", "cpu"]);
         assert!(matches!(cli_cpu.command, Some(Commands::Serve(args)) if args.device == "cpu"));
     }
 

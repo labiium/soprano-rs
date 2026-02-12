@@ -12,14 +12,14 @@ use candle_core::{DType, Device, IndexOp, Result, Tensor};
 use candle_nn::{Activation, Linear, Module};
 
 /// MLP implementation matching qwen3.rs
-struct MLP {
+struct Mlp {
     gate_proj: Linear,
     up_proj: Linear,
     down_proj: Linear,
     act_fn: Activation,
 }
 
-impl MLP {
+impl Mlp {
     fn new(
         gate_weight: Tensor,
         up_weight: Tensor,
@@ -39,7 +39,7 @@ impl MLP {
     }
 }
 
-impl Module for MLP {
+impl Module for Mlp {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let lhs = xs.apply(&self.gate_proj)?.apply(&self.act_fn)?;
         let rhs = xs.apply(&self.up_proj)?;
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
     println!("Candle MLP/SwiGLU Implementation Test");
     println!("{}", "=".repeat(70));
 
-    let device = Device::Cpu;
+    let _device = Device::Cpu;
 
     println!("\n1. Loading weights from Python...");
 
@@ -73,7 +73,7 @@ fn main() -> Result<()> {
     println!("   expected output shape: {:?}", expected_output.dims());
 
     println!("\n2. Creating MLP with SiLU activation...");
-    let mlp = MLP::new(
+    let mlp = Mlp::new(
         gate_proj_weight,
         up_proj_weight,
         down_proj_weight,

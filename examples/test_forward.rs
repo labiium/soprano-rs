@@ -109,13 +109,8 @@ fn main() -> Result<()> {
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
     println!("\nTop 10 predicted tokens:");
-    for i in 0..10.min(indexed.len()) {
-        println!(
-            "  {}. Token {}: logit={:.4}",
-            i + 1,
-            indexed[i].0,
-            indexed[i].1
-        );
+    for (i, (token_id, score)) in indexed.iter().take(10).enumerate() {
+        println!("  {}. Token {}: logit={:.4}", i + 1, token_id, score);
     }
 
     // Print statistics

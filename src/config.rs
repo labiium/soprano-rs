@@ -5,31 +5,26 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Engine identifier used for routing CLI and request handling.
-#[derive(clap::ValueEnum, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(
+    clap::ValueEnum, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum EngineId {
+    #[default]
     Soprano,
-    Chatterbox,
-}
-
-impl Default for EngineId {
-    fn default() -> Self {
-        Self::Soprano
-    }
 }
 
 impl EngineId {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Soprano => "soprano",
-            Self::Chatterbox => "chatterbox",
         }
     }
 }
 
 /// Command line arguments with subcommands
 #[derive(Parser, Debug, Clone)]
-#[command(name = "soprano-tts")]
+#[command(name = "soprano")]
 #[command(about = "High-performance Rust TTS server and tools")]
 #[command(version)]
 pub struct Cli {
@@ -556,13 +551,13 @@ mod tests {
 
     #[test]
     fn test_cli_defaults() {
-        let cli = Cli::parse_from(["soprano-tts", "serve"]);
+        let cli = Cli::parse_from(["soprano", "serve"]);
         assert!(matches!(cli.command, Some(Commands::Serve(_))));
     }
 
     #[test]
     fn test_serve_args_defaults() {
-        let cli = Cli::parse_from(["soprano-tts", "serve"]);
+        let cli = Cli::parse_from(["soprano", "serve"]);
         let args = match cli.command {
             Some(Commands::Serve(a)) => a,
             _ => panic!("expected serve command"),
@@ -576,14 +571,14 @@ mod tests {
 
     #[test]
     fn test_tts_inflight() {
-        let cli = Cli::parse_from(["soprano-tts", "serve"]);
+        let cli = Cli::parse_from(["soprano", "serve"]);
         let args = match cli.command {
             Some(Commands::Serve(a)) => a,
             _ => panic!("expected serve command"),
         };
         assert_eq!(args.tts_inflight(), 2);
 
-        let cli = Cli::parse_from(["soprano-tts", "serve", "--tts-inflight", "5"]);
+        let cli = Cli::parse_from(["soprano", "serve", "--tts-inflight", "5"]);
         let args_with_limit = match cli.command {
             Some(Commands::Serve(a)) => a,
             _ => panic!("expected serve command"),
@@ -593,12 +588,12 @@ mod tests {
 
     #[test]
     fn test_engine_cli_parsing() {
-        let cli = Cli::parse_from(["soprano-tts", "serve", "--engine", "chatterbox"]);
+        let cli = Cli::parse_from(["soprano", "serve", "--engine", "soprano"]);
         let args = match cli.command {
             Some(Commands::Serve(a)) => a,
             _ => panic!("expected serve command"),
         };
-        assert_eq!(args.engine, EngineId::Chatterbox);
+        assert_eq!(args.engine, EngineId::Soprano);
     }
 
     #[test]

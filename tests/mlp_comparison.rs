@@ -1,7 +1,6 @@
 //! Test to compare MLP/SwiGLU computation with Python
 
-use candle_core::{DType, Device, IndexOp, Result, Tensor};
-use candle_nn::Module;
+use candle_core::{Device, IndexOp, Result, Tensor};
 
 #[test]
 fn test_mlp_silu_computation() -> Result<()> {

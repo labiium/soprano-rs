@@ -27,7 +27,7 @@ pub fn require_model_files(model_dir: &Path) {
         let p = model_dir.join(f);
         assert!(
             p.exists(),
-            "missing required model file: {} (download with: soprano-tts download ekwek/Soprano-1.1-80M)",
+            "missing required model file: {} (download with: soprano download ekwek/Soprano-1.1-80M)",
             p.display()
         );
     }

@@ -512,13 +512,8 @@ impl SopranoModel {
             .collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         eprintln!("[GENERATE] Top 5 tokens:");
-        for i in 0..5.min(indexed.len()) {
-            eprintln!(
-                "  {}. Token {}: logit={:.4}",
-                i + 1,
-                indexed[i].0,
-                indexed[i].1
-            );
+        for (i, (token_id, score)) in indexed.iter().take(5).enumerate() {
+            eprintln!("  {}. Token {}: logit={:.4}", i + 1, token_id, score);
         }
 
         let mut generated_hidden: Vec<Tensor> = Vec::new();

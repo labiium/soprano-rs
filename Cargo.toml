@@ -1,5 +1,5 @@
 [package]
-name = "soprano-tts"
+name = "soprano"
 version = "0.1.0"
 edition = "2021"
 authors = ["Soprano TTS Team"]
@@ -30,10 +30,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # ML - Candle
-candle-core = { version = "0.8", features = ["cuda"] }
-candle-nn = { version = "0.8", features = ["cuda"] }
-candle-transformers = { version = "0.8", features = ["cuda"] }
-candle-flash-attn = { version = "0.8", optional = true }
+candle-core = { version = "0.9", features = ["cuda"] }
+candle-nn = { version = "0.9", features = ["cuda"] }
+candle-transformers = { version = "0.9", features = ["cuda"] }
+candle-flash-attn = { version = "0.9", optional = true }
 
 # Tokenization
 tokenizers = "0.20"
@@ -115,7 +115,7 @@ name = "tts_benchmark"
 harness = false
 
 [[bin]]
-name = "soprano-tts"
+name = "soprano"
 path = "src/main.rs"
 
 [[example]]
