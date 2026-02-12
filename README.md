@@ -33,6 +33,26 @@ Default model ID:
 cargo build --release
 ```
 
+## Install
+
+Install the latest binary directly from GitHub:
+
+```bash
+cargo install --git https://github.com/labiium/soprano-rs --locked
+```
+
+Then run:
+
+```bash
+soprano --help
+```
+
+You can also run from source without installing:
+
+```bash
+cargo run -- --help
+```
+
 ## CLI
 
 ```bash
@@ -53,19 +73,127 @@ If no command is provided, it defaults to `serve`.
 
 ```bash
 # List models
-cargo run -- list
+soprano list
 
 # Download default model
-cargo run -- download ekwek/Soprano-1.1-80M
+soprano download ekwek/Soprano-1.1-80M
 
 # Start server
-cargo run -- serve --host 0.0.0.0 --port 8080
+soprano serve --host 0.0.0.0 --port 8080
 
 # Generate one WAV file
-cargo run -- generate --text "Hello from soprano-rs" --output sample.wav
+soprano generate --text "Hello from soprano-rs" --output sample.wav
 
 # Generate from file (one line per sample)
-cargo run -- generate --file input.txt --output ./output
+soprano generate --file input.txt --output ./output
+```
+
+## Library usage
+
+You can use this crate directly as a Rust library for one-shot or streaming synthesis.
+
+Add dependencies:
+
+```toml
+[dependencies]
+soprano = { git = "https://github.com/labiium/soprano-rs" }
+tokio = { version = "1", features = ["full"] }
+hound = "3.5"
+```
+
+### One-shot synthesis (text -> WAV)
+
+```rust
+use candle_core::Device;
+use hound::{SampleFormat, WavSpec, WavWriter};
+use soprano::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest};
+
+fn select_device(name: &str) -> Device {
+    match name.to_lowercase().as_str() {
+        "cuda" | "gpu" => Device::new_cuda(0).unwrap_or(Device::Cpu),
+        "metal" | "mps" => Device::new_metal(0).unwrap_or(Device::Cpu),
+        _ => Device::Cpu,
+    }
+}
+
+fn write_wav(path: &str, samples: &[f32], sample_rate: u32) -> Result<(), Box<dyn std::error::Error>> {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(path, spec)?;
+    for &s in samples {
+        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        writer.write_sample(v)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let device = select_device("cuda");
+
+    let engine = SopranoTtsEngineBuilder::new("models")
+        .with_device(device)
+        .with_workers(2)
+        .build()
+        .await?;
+
+    let req = TtsRequest::new("Hello from the soprano library API");
+    let resp = engine.synthesize(req).await?;
+
+    write_wav("sample.wav", &resp.pcm, resp.sample_rate)?;
+    println!("Wrote sample.wav ({} samples @ {} Hz)", resp.num_samples, resp.sample_rate);
+    Ok(())
+}
+```
+
+### Streaming synthesis (chunked output)
+
+```rust
+use candle_core::Device;
+use hound::{SampleFormat, WavSpec, WavWriter};
+use soprano::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let engine = SopranoTtsEngineBuilder::new("models")
+        .with_device(Device::new_cuda(0).unwrap_or(Device::Cpu))
+        .build()
+        .await?;
+
+    let mut rx = engine
+        .synthesize_streaming(TtsRequest::new(
+            "This is a streaming synthesis example using the soprano library API.",
+        ))
+        .await?;
+
+    let mut all_samples = Vec::new();
+    while let Some(chunk_result) = rx.recv().await {
+        let chunk = chunk_result?;
+        println!("chunk {}: {} samples", chunk.sequence, chunk.pcm.len());
+        all_samples.extend_from_slice(&chunk.pcm);
+        if chunk.is_final {
+            break;
+        }
+    }
+
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: 32000,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create("stream.wav", spec)?;
+    for s in all_samples {
+        writer.write_sample((s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
 ```
 
 ## Server API
