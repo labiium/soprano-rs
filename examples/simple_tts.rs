@@ -11,7 +11,7 @@
 
 use clap::Parser;
 use soprano_tts::{
-    config::{GenerationConfig, parse_device},
+    config::{parse_device, GenerationConfig},
     tts::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest},
 };
 use std::path::PathBuf;
@@ -136,8 +136,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Print metadata
     println!("\nGeneration metadata:");
     println!("  Tokens generated: {}", response.metadata.tokens_generated);
-    println!("  Sentences processed: {}", response.metadata.sentences_processed);
-    println!("  Processing time: {}ms", response.metadata.processing_time_ms);
+    println!(
+        "  Sentences processed: {}",
+        response.metadata.sentences_processed
+    );
+    println!(
+        "  Processing time: {}ms",
+        response.metadata.processing_time_ms
+    );
     println!("  LLM time: {}ms", response.metadata.llm_time_ms);
     println!("  Decoder time: {}ms", response.metadata.decoder_time_ms);
     println!("  Finish reason: {}", response.metadata.finish_reason);
@@ -223,7 +229,9 @@ fn save_wav(
 
 /// Example: Batch processing
 #[allow(dead_code)]
-async fn batch_example(engine: &soprano_tts::tts::SopranoTtsEngine) -> Result<(), Box<dyn std::error::Error>> {
+async fn batch_example(
+    engine: &soprano_tts::tts::SopranoTtsEngine,
+) -> Result<(), Box<dyn std::error::Error>> {
     let texts = vec![
         "First sentence to synthesize.",
         "Second sentence for batch processing.",
@@ -235,11 +243,7 @@ async fn batch_example(engine: &soprano_tts::tts::SopranoTtsEngine) -> Result<()
     let requests: Vec<_> = texts
         .into_iter()
         .enumerate()
-        .map(|(i, text)| {
-            TtsRequest::new(text)
-                .with_id(i as u64 + 1)
-                .with_speed(1.0)
-        })
+        .map(|(i, text)| TtsRequest::new(text).with_id(i as u64 + 1).with_speed(1.0))
         .collect();
 
     let batch_start = Instant::now();
@@ -306,7 +310,10 @@ async fn streaming_example(
         }
     }
 
-    println!("Stream complete: {} chunks, {} total samples", chunk_count, total_samples);
+    println!(
+        "Stream complete: {} chunks, {} total samples",
+        chunk_count, total_samples
+    );
 
     Ok(())
 }

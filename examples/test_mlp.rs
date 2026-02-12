@@ -62,8 +62,7 @@ fn main() -> Result<()> {
         Tensor::read_npy("/tmp/mlp_test/up_proj_weight.npy")?.to_dtype(DType::F32)?;
     let down_proj_weight =
         Tensor::read_npy("/tmp/mlp_test/down_proj_weight.npy")?.to_dtype(DType::F32)?;
-    let test_input =
-        Tensor::read_npy("/tmp/mlp_test/test_input.npy")?.to_dtype(DType::F32)?;
+    let test_input = Tensor::read_npy("/tmp/mlp_test/test_input.npy")?.to_dtype(DType::F32)?;
     let expected_output =
         Tensor::read_npy("/tmp/mlp_test/expected_output.npy")?.to_dtype(DType::F32)?;
 
@@ -113,7 +112,10 @@ fn main() -> Result<()> {
     println!("\n6. Test Result:");
     let tolerance = 1e-4;
     if max_diff < tolerance {
-        println!("   PASS: Outputs match within tolerance ({:.0e})", tolerance);
+        println!(
+            "   PASS: Outputs match within tolerance ({:.0e})",
+            tolerance
+        );
     } else {
         println!("   FAIL: Outputs differ by more than {:.0e}", tolerance);
         println!("   This indicates a bug in the MLP implementation!");

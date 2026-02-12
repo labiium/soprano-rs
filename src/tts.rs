@@ -11,20 +11,21 @@ use crate::splitter::split_and_recombine_text;
 use async_trait::async_trait;
 use candle_core::{DType, Device, Tensor};
 // Note: we use tokio::sync::Mutex for async compatibility
-use tokio::sync::Mutex as AsyncMutex;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use thiserror::Error;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot, Semaphore};
 use tracing::{debug, info, instrument};
 
 /// Save tensor as .npy file for debugging
 fn save_tensor_npy(tensor: &Tensor, filename: &str) -> Result<(), TtsError> {
     let path = Path::new(filename);
-    let data: Vec<f32> = tensor.flatten_all()
+    let data: Vec<f32> = tensor
+        .flatten_all()
         .map_err(|e| TtsError::DecoderError(e.to_string()))?
         .to_vec1()
         .map_err(|e| TtsError::DecoderError(e.to_string()))?;
@@ -45,26 +46,24 @@ fn save_tensor_npy(tensor: &Tensor, filename: &str) -> Result<(), TtsError> {
     // Write magic number and version
     file.write_all(&[0x93, b'N', b'U', b'M', b'P', b'Y', 0x01, 0x00])
         .map_err(|e| TtsError::DecoderError(e.to_string()))?;
-    
+
     // Write header length (little endian u16)
     file.write_all(&(total_header_len as u16).to_le_bytes())
         .map_err(|e| TtsError::DecoderError(e.to_string()))?;
-    
+
     // Write header
     file.write_all(header.as_bytes())
         .map_err(|e| TtsError::DecoderError(e.to_string()))?;
-    
+
     // Write padding
     file.write_all(&vec![0x20; padding])
         .map_err(|e| TtsError::DecoderError(e.to_string()))?;
-    
+
     // Write data
-    let data_bytes: Vec<u8> = data.iter()
-        .flat_map(|&f| f.to_le_bytes())
-        .collect();
+    let data_bytes: Vec<u8> = data.iter().flat_map(|&f| f.to_le_bytes()).collect();
     file.write_all(&data_bytes)
         .map_err(|e| TtsError::DecoderError(e.to_string()))?;
-    
+
     Ok(())
 }
 
@@ -305,10 +304,7 @@ impl TtsResponse {
 
     /// Get audio as bytes (f32 little-endian)
     pub fn pcm_as_bytes(&self) -> Vec<u8> {
-        self.pcm
-            .iter()
-            .flat_map(|&s| s.to_le_bytes())
-            .collect()
+        self.pcm.iter().flat_map(|&s| s.to_le_bytes()).collect()
     }
 
     /// Get audio as bytes (i16 little-endian)
@@ -450,7 +446,10 @@ impl DecoderWorkerPool {
                 decoder_config.upscale,
                 decoder_config.dw_kernel,
                 vb,
-            ).map_err(|e| TtsError::DecoderError(format!("Failed to create decoder {}: {}", i, e)))?;
+            )
+            .map_err(|e| {
+                TtsError::DecoderError(format!("Failed to create decoder {}: {}", i, e))
+            })?;
 
             let worker = DecoderWorker {
                 decoder,
@@ -464,7 +463,7 @@ impl DecoderWorkerPool {
                         let mut rx = worker_rx.lock().await;
                         rx.recv().await
                     };
-                    
+
                     match task {
                         Some(task) => {
                             let result = worker
@@ -515,8 +514,7 @@ impl DecoderWorkerPool {
             .await
             .map_err(|_| TtsError::ChannelClosed)?;
 
-        rx.await
-            .map_err(|_| TtsError::ChannelClosed)?
+        rx.await.map_err(|_| TtsError::ChannelClosed)?
     }
 }
 
@@ -596,7 +594,10 @@ impl SopranoTtsEngine {
             &config.device,
         )?;
 
-        info!("Decoder worker pool created with {} workers", config.num_workers);
+        info!(
+            "Decoder worker pool created with {} workers",
+            config.num_workers
+        );
 
         Ok(Self {
             model: Arc::new(AsyncMutex::new(model)),
@@ -642,16 +643,17 @@ impl SopranoTtsEngine {
         let llm_start = Instant::now();
         let generation_result = {
             let mut model = self.model.lock().await;
-            model.generate(&prompt, &model_config)
+            model
+                .generate(&prompt, &model_config)
                 .map_err(|e| TtsError::ModelError(e.to_string()))?
         };
         metadata.llm_time_ms = llm_start.elapsed().as_millis() as u64;
         metadata.tokens_generated = generation_result.token_count;
         metadata.finish_reason = format!("{:?}", generation_result.finish_reason);
 
-        debug!("Generated {} tokens in {}ms", 
-            generation_result.token_count, 
-            metadata.llm_time_ms
+        debug!(
+            "Generated {} tokens in {}ms",
+            generation_result.token_count, metadata.llm_time_ms
         );
 
         // Decode hidden states to audio
@@ -675,10 +677,7 @@ impl SopranoTtsEngine {
             .and_then(|t| t.transpose(1, 2))
             .map_err(|e| TtsError::DecoderError(e.to_string()))?;
 
-        let audio_tensor = self
-            .decoder_pool
-            .decode(hs, 0)
-            .await?;
+        let audio_tensor = self.decoder_pool.decode(hs, 0).await?;
         metadata.decoder_time_ms = decoder_start.elapsed().as_millis() as u64;
 
         // Decoder returns (B, L). We use batch size 1 here.
@@ -689,7 +688,9 @@ impl SopranoTtsEngine {
         // Match Python reference: keep last (T * TOKEN_SIZE - TOKEN_SIZE) samples.
         // This drops the first token-sized chunk.
         const TOKEN_SIZE: usize = 2048;
-        let desired = token_len.saturating_mul(TOKEN_SIZE).saturating_sub(TOKEN_SIZE);
+        let desired = token_len
+            .saturating_mul(TOKEN_SIZE)
+            .saturating_sub(TOKEN_SIZE);
         let audio_1d = if desired > 0 {
             let len = audio_1d
                 .dim(0)
@@ -752,30 +753,30 @@ impl SopranoTtsEngine {
         if audio.is_empty() {
             return audio;
         }
-        
+
         // Find peak amplitude
-        let max_abs = audio
-            .iter()
-            .map(|&s| s.abs())
-            .fold(0.0f32, |a, b| a.max(b));
-        
+        let max_abs = audio.iter().map(|&s| s.abs()).fold(0.0f32, |a, b| a.max(b));
+
         if max_abs > 0.0 {
             // Normalize with 6dB headroom (multiply by 0.5)
             // This provides more headroom to prevent clipping
             let target_peak = 0.5; // -6dB
             let scale = target_peak / max_abs;
-            
+
             // Apply scaling with soft clipping
-            audio.iter().map(|&s| {
-                let scaled = s * scale;
-                // Soft clipping using tanh for smoother limiting
-                // Only apply to values near the limits
-                if scaled.abs() > 0.8 {
-                    scaled.tanh()
-                } else {
-                    scaled
-                }
-            }).collect()
+            audio
+                .iter()
+                .map(|&s| {
+                    let scaled = s * scale;
+                    // Soft clipping using tanh for smoother limiting
+                    // Only apply to values near the limits
+                    if scaled.abs() > 0.8 {
+                        scaled.tanh()
+                    } else {
+                        scaled
+                    }
+                })
+                .collect()
         } else {
             audio
         }
@@ -819,7 +820,9 @@ impl TtsEngine for SopranoTtsEngine {
         }
 
         // Get generation config
-        let gen_config = req.generation_config.unwrap_or_else(|| self.config.generation_config.clone());
+        let gen_config = req
+            .generation_config
+            .unwrap_or_else(|| self.config.generation_config.clone());
 
         // Clean and normalize text
         let clean_start = Instant::now();
@@ -831,7 +834,9 @@ impl TtsEngine for SopranoTtsEngine {
         debug!("Split into {} sentences/chunks", sentences.len());
 
         if sentences.is_empty() {
-            return Err(TtsError::InvalidInput("No valid text to synthesize".to_string()));
+            return Err(TtsError::InvalidInput(
+                "No valid text to synthesize".to_string(),
+            ));
         }
 
         // Process each sentence
@@ -839,7 +844,12 @@ impl TtsEngine for SopranoTtsEngine {
         let mut all_metadata = Vec::new();
 
         for (idx, sentence) in sentences.iter().enumerate() {
-            debug!("Processing sentence {}/{}: '{}'", idx + 1, sentences.len(), sentence);
+            debug!(
+                "Processing sentence {}/{}: '{}'",
+                idx + 1,
+                sentences.len(),
+                sentence
+            );
 
             let (audio, metadata) = self.process_sentence(sentence, &gen_config).await?;
             audio_chunks.push(audio);
@@ -848,7 +858,7 @@ impl TtsEngine for SopranoTtsEngine {
 
         // Concatenate audio
         let mut final_audio = Self::concatenate_audio(audio_chunks);
-        
+
         // Normalize audio to prevent clipping and set proper volume
         final_audio = Self::normalize_audio(final_audio);
 
@@ -936,8 +946,10 @@ impl TtsEngine for SopranoTtsEngine {
 impl SopranoTtsEngine {
     fn clone_for_streaming(&self) -> Result<Self, TtsError> {
         // Create a new model instance for streaming
-        let model = SopranoModel::from_path(&self.config.model_path, self.device.clone())
-            .map_err(|e| TtsError::ModelError(format!("Failed to clone model for streaming: {}", e)))?;
+        let model =
+            SopranoModel::from_path(&self.config.model_path, self.device.clone()).map_err(|e| {
+                TtsError::ModelError(format!("Failed to clone model for streaming: {}", e))
+            })?;
 
         Ok(Self {
             model: Arc::new(AsyncMutex::new(model)),
@@ -953,7 +965,9 @@ impl SopranoTtsEngine {
         req: TtsRequest,
         tx: mpsc::Sender<Result<TtsChunk, TtsError>>,
     ) -> Result<(), TtsError> {
-        let gen_config = req.generation_config.unwrap_or_else(|| self.config.generation_config.clone());
+        let gen_config = req
+            .generation_config
+            .unwrap_or_else(|| self.config.generation_config.clone());
 
         // Clean and split text
         let cleaned_text = clean_text(&req.text);
@@ -1105,11 +1119,7 @@ mod tests {
 
     #[test]
     fn test_concatenate_audio() {
-        let chunks = vec![
-            vec![1.0, 2.0, 3.0],
-            vec![4.0, 5.0],
-            vec![6.0],
-        ];
+        let chunks = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0], vec![6.0]];
 
         let result = SopranoTtsEngine::concatenate_audio(chunks);
         assert_eq!(result, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);

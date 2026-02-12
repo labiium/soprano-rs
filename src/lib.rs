@@ -11,7 +11,7 @@ pub mod spectral;
 pub mod splitter;
 pub mod tts;
 
-pub use config::{Cli, Commands, DownloadArgs, GenerateArgs, ServeArgs, StreamConfig};
+pub use config::{Cli, Commands, DownloadArgs, EngineId, GenerateArgs, ServeArgs, StreamConfig};
 pub use server::AppState;
 pub use tts::{
     AudioFormat, EngineInfo, GenerationMetadata, SopranoEngineConfig, SopranoTtsEngine,
@@ -21,11 +21,11 @@ pub use tts::{
 // Re-export commonly used items from model_loader
 #[cfg(feature = "model-download")]
 pub use model_loader::{
-    download_model, load_model_from_hf, load_model_from_path, ModelCache,
-    ModelLoaderError, DownloadConfig,
+    download_model, load_model_from_hf, load_model_from_path, DownloadConfig, ModelCache,
+    ModelLoaderError,
 };
 
 pub use model_loader::{
-    load_model_weights, load_decoder_weights, cuda_available, get_optimal_device,
-    list_available_models, ModelFormat, ModelInfo,
+    cuda_available, get_optimal_device, list_available_models, load_decoder_weights,
+    load_model_weights, ModelFormat, ModelInfo,
 };

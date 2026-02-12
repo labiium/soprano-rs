@@ -311,7 +311,9 @@ fn find_split_index(buffer: &str, cfg: &StreamConfig, allow_short: bool) -> Opti
         if cfg.chunker.boundary_chars.contains(ch) {
             let boundary_idx = byte_idx + ch.len_utf8();
             if (allow_short || chars_so_far >= min_chars)
-                && (allow_short || min_words <= 1 || word_count(&buffer[..boundary_idx]) >= min_words)
+                && (allow_short
+                    || min_words <= 1
+                    || word_count(&buffer[..boundary_idx]) >= min_words)
             {
                 return Some(boundary_idx);
             }

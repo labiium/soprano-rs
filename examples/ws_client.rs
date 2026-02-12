@@ -30,7 +30,11 @@ struct Args {
     url: String,
 
     /// Text to synthesize
-    #[arg(short, long, default_value = "Hello, this is a test of the Soprano text to speech system!")]
+    #[arg(
+        short,
+        long,
+        default_value = "Hello, this is a test of the Soprano text to speech system!"
+    )]
     text: String,
 
     /// Output file for audio (raw PCM)
@@ -90,10 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Wait for ready message
-    let ready_msg = ws
-        .next()
-        .await
-        .ok_or("Connection closed before ready")??;
+    let ready_msg = ws.next().await.ok_or("Connection closed before ready")??;
 
     let _session_id = match ready_msg {
         Message::Text(text) => {
@@ -131,7 +132,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ws.send(Message::Text(text_msg.to_string())).await?;
 
     // Send flush
-    ws.send(Message::Text(json!({"type": "flush"}).to_string())).await?;
+    ws.send(Message::Text(json!({"type": "flush"}).to_string()))
+        .await?;
 
     // Collect audio frames
     let mut frames: Vec<AudioFrame> = Vec::new();
@@ -176,7 +178,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                     Some("error") => {
-                        eprintln!("Server error: {}", msg["message"].as_str().unwrap_or("unknown"));
+                        eprintln!(
+                            "Server error: {}",
+                            msg["message"].as_str().unwrap_or("unknown")
+                        );
                         return Err("Server error".into());
                     }
                     _ => {
@@ -220,14 +225,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Send stop message and close
-    let _ = ws.send(Message::Text(json!({"type": "stop"}).to_string())).await;
+    let _ = ws
+        .send(Message::Text(json!({"type": "stop"}).to_string()))
+        .await;
     let _ = ws.close(None).await;
 
     Ok(())
 }
 
 /// Parse binary audio frame
-fn parse_audio_frame(data: &[u8], extract_text: bool) -> Result<AudioFrame, Box<dyn std::error::Error>> {
+fn parse_audio_frame(
+    data: &[u8],
+    extract_text: bool,
+) -> Result<AudioFrame, Box<dyn std::error::Error>> {
     if data.len() < 4 {
         return Err("Data too short".into());
     }

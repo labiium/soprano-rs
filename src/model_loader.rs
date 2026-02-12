@@ -108,9 +108,10 @@ impl ModelFormat {
             Some("safetensors") => Ok(ModelFormat::SafeTensors),
             Some("pth") | Some("pt") => Ok(ModelFormat::PyTorch),
             Some("onnx") => Ok(ModelFormat::Onnx),
-            _ => Err(ModelLoaderError::InvalidFormat(
-                format!("Unknown file format: {:?}", path),
-            )),
+            _ => Err(ModelLoaderError::InvalidFormat(format!(
+                "Unknown file format: {:?}",
+                path
+            ))),
         }
     }
 
@@ -226,9 +227,7 @@ impl ModelCache {
             let path = entry.path();
 
             if path.is_dir() {
-                let model_id = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let model_id = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 // Skip models we want to keep
                 if keep_model_ids.contains(&model_id) {
@@ -266,7 +265,9 @@ pub fn verify_model(model_path: &Path) -> Result<ModelVerification> {
     };
 
     if !model_path.exists() {
-        verification.errors.push(format!("Model path does not exist: {:?}", model_path));
+        verification
+            .errors
+            .push(format!("Model path does not exist: {:?}", model_path));
         return Ok(verification);
     }
 
@@ -275,7 +276,9 @@ pub fn verify_model(model_path: &Path) -> Result<ModelVerification> {
     if tokenizer_path.exists() {
         verification.files_found.push("tokenizer.json".to_string());
     } else {
-        verification.errors.push("Missing tokenizer.json".to_string());
+        verification
+            .errors
+            .push("Missing tokenizer.json".to_string());
     }
 
     // Check for config.json (recommended for SafeTensors models)
@@ -300,8 +303,10 @@ pub fn verify_model(model_path: &Path) -> Result<ModelVerification> {
     if !safetensors_files.is_empty() {
         verification.format = ModelFormat::SafeTensors;
         verification.files_found.extend(safetensors_files);
-        info!("Found SafeTensors model with {} file(s)", 
-            verification.files_found.len() - if config_path.exists() { 2 } else { 1 });
+        info!(
+            "Found SafeTensors model with {} file(s)",
+            verification.files_found.len() - if config_path.exists() { 2 } else { 1 }
+        );
     }
 
     // Check for GGUF file (fallback)
@@ -325,13 +330,18 @@ pub fn verify_model(model_path: &Path) -> Result<ModelVerification> {
     }
 
     // Determine validity
-    verification.is_valid = !verification.files_found.is_empty() 
-        && verification.errors.is_empty();
+    verification.is_valid = !verification.files_found.is_empty() && verification.errors.is_empty();
 
     if verification.is_valid {
-        info!("Model verification passed: {} format", verification.format.as_str());
+        info!(
+            "Model verification passed: {} format",
+            verification.format.as_str()
+        );
     } else {
-        warn!("Model verification failed with {} errors", verification.errors.len());
+        warn!(
+            "Model verification failed with {} errors",
+            verification.errors.len()
+        );
     }
 
     Ok(verification)
@@ -394,7 +404,12 @@ pub async fn download_model(
                     break;
                 }
                 Err(e) => {
-                    warn!("Download attempt {} failed for {}: {}", attempt + 1, file, e);
+                    warn!(
+                        "Download attempt {} failed for {}: {}",
+                        attempt + 1,
+                        file,
+                        e
+                    );
                     last_error = Some(e);
                     if attempt < config.max_retries - 1 {
                         tokio::time::sleep(std::time::Duration::from_secs(2u64.pow(attempt))).await;
@@ -553,7 +568,10 @@ async fn verify_model_checksums(model_path: &Path) -> Result<()> {
 }
 
 /// Load SafeTensors model weights
-pub fn load_safetensors_model(model_path: &Path, device: &Device) -> Result<HashMap<String, Tensor>> {
+pub fn load_safetensors_model(
+    model_path: &Path,
+    device: &Device,
+) -> Result<HashMap<String, Tensor>> {
     info!("Loading SafeTensors model from {:?}", model_path);
 
     // Find all SafeTensors files
@@ -571,7 +589,7 @@ pub fn load_safetensors_model(model_path: &Path, device: &Device) -> Result<Hash
 
     if safetensors_files.is_empty() {
         return Err(ModelLoaderError::NotFound(
-            "No .safetensors files found in model directory".to_string()
+            "No .safetensors files found in model directory".to_string(),
         ));
     }
 
@@ -594,12 +612,18 @@ pub fn load_safetensors_model(model_path: &Path, device: &Device) -> Result<Hash
         }
     }
 
-    info!("Loaded {} tensors from SafeTensors model", all_tensors.len());
+    info!(
+        "Loaded {} tensors from SafeTensors model",
+        all_tensors.len()
+    );
     Ok(all_tensors)
 }
 
 /// Load quantized model weights from GGUF file
-pub fn load_gguf_model_weights(path: &Path, device: &Device) -> Result<candle_transformers::models::quantized_llama::ModelWeights> {
+pub fn load_gguf_model_weights(
+    path: &Path,
+    device: &Device,
+) -> Result<candle_transformers::models::quantized_llama::ModelWeights> {
     info!("Loading GGUF model from {:?}", path);
 
     // Handle directory path
@@ -623,11 +647,11 @@ pub fn load_gguf_model_weights(path: &Path, device: &Device) -> Result<candle_tr
     // Load GGUF file - first read the content, then load the model
     let file = std::fs::File::open(&gguf_path)?;
     let mut reader = std::io::BufReader::new(file);
-    
+
     // Read GGUF content
     let gguf_content = candle_core::quantized::gguf_file::Content::read(&mut reader)
         .map_err(ModelLoaderError::Candle)?;
-    
+
     // Load model weights from GGUF content
     let model = candle_transformers::models::quantized_llama::ModelWeights::from_gguf(
         gguf_content,
@@ -640,7 +664,7 @@ pub fn load_gguf_model_weights(path: &Path, device: &Device) -> Result<candle_tr
 }
 
 /// Load model weights with automatic format detection
-/// 
+///
 /// Priority: SafeTensors > GGUF
 pub fn load_model_weights(model_path: &Path) -> Result<ModelFormat> {
     info!("Loading model weights from {:?}", model_path);
@@ -658,7 +682,10 @@ pub fn load_model_weights(model_path: &Path) -> Result<ModelFormat> {
         .count();
 
     if safetensors_count > 0 {
-        info!("Detected SafeTensors format with {} file(s)", safetensors_count);
+        info!(
+            "Detected SafeTensors format with {} file(s)",
+            safetensors_count
+        );
         return Ok(ModelFormat::SafeTensors);
     }
 
@@ -680,7 +707,7 @@ pub fn load_model_weights(model_path: &Path) -> Result<ModelFormat> {
     }
 
     Err(ModelLoaderError::NotFound(
-        "No supported model files found. Expected: *.safetensors or *.gguf".to_string()
+        "No supported model files found. Expected: *.safetensors or *.gguf".to_string(),
     ))
 }
 
@@ -718,16 +745,14 @@ fn load_safetensors_single(path: &Path, device: &Device) -> Result<Tensor> {
     let file = std::fs::File::open(path)?;
     let buffer = unsafe { memmap2::Mmap::map(&file)? };
 
-    let tensors = candle_core::safetensors::load_buffer(&buffer, device)
-        .map_err(ModelLoaderError::Candle)?;
+    let tensors =
+        candle_core::safetensors::load_buffer(&buffer, device).map_err(ModelLoaderError::Candle)?;
 
     // Return the first tensor as the decoder weights
     // In practice, you'd want to identify the specific tensor name
-    tensors
-        .values()
-        .next()
-        .cloned()
-        .ok_or_else(|| ModelLoaderError::NotFound("No tensors found in safetensors file".to_string()))
+    tensors.values().next().cloned().ok_or_else(|| {
+        ModelLoaderError::NotFound("No tensors found in safetensors file".to_string())
+    })
 }
 
 /// Load PyTorch weights and convert to Candle format
@@ -774,7 +799,8 @@ fn load_pytorch_zip(path: &Path, _device: &Device) -> Result<Tensor> {
                 // For now, return an error indicating conversion is needed
                 // Full PyTorch pickle parsing requires additional dependencies
                 return Err(ModelLoaderError::InvalidFormat(
-                    "PyTorch format requires conversion. Use convert_pytorch_to_safetensors()".to_string(),
+                    "PyTorch format requires conversion. Use convert_pytorch_to_safetensors()"
+                        .to_string(),
                 ));
             }
         }
@@ -806,16 +832,13 @@ fn find_file_in_dir(dir: &Path, extension: &str) -> Result<PathBuf> {
 }
 
 /// Convert PyTorch .pth file to SafeTensors format
-/// 
+///
 /// This requires the `model-download` feature and additional dependencies
 /// for full pickle parsing. For production use, consider using:
 /// - The `pytorch-file` crate
 /// - External conversion tools like `convert-to-safetensors`
 #[cfg(feature = "model-download")]
-pub fn convert_pytorch_to_safetensors(
-    pytorch_path: &Path,
-    output_path: &Path,
-) -> Result<()> {
+pub fn convert_pytorch_to_safetensors(pytorch_path: &Path, output_path: &Path) -> Result<()> {
     info!(
         "Converting {:?} to SafeTensors format at {:?}",
         pytorch_path, output_path
@@ -827,7 +850,8 @@ pub fn convert_pytorch_to_safetensors(
 
     Err(ModelLoaderError::Other(
         "PyTorch to SafeTensors conversion requires the 'pytorch-convert' feature. \
-         Please install the model with: pip install safetensors torch".to_string(),
+         Please install the model with: pip install safetensors torch"
+            .to_string(),
     ))
 }
 
@@ -835,39 +859,29 @@ pub fn convert_pytorch_to_safetensors(
 ///
 /// This is the main entry point for model loading in production.
 #[cfg(feature = "model-download")]
-pub async fn load_model_from_hf(
-    model_id: &str,
-    cache_dir: Option<&Path>,
-) -> Result<ModelFormat> {
+pub async fn load_model_from_hf(model_id: &str, cache_dir: Option<&Path>) -> Result<ModelFormat> {
     let cache_dir = match cache_dir {
         Some(path) => path.to_path_buf(),
         None => ModelCache::default_cache_dir()?,
     };
 
     // Download or use cached model
-    let model_path = download_model(
-        model_id,
-        &cache_dir,
-        None,
-        None,
-    )
-    .await?;
+    let model_path = download_model(model_id, &cache_dir, None, None).await?;
 
     // Verify model
     let verification = verify_model(&model_path)?;
     if !verification.is_valid {
-        return Err(ModelLoaderError::InvalidFormat(
-            format!("Model verification failed: {:?}", verification.errors)
-        ));
+        return Err(ModelLoaderError::InvalidFormat(format!(
+            "Model verification failed: {:?}",
+            verification.errors
+        )));
     }
 
     Ok(verification.format)
 }
 
 /// Load model from a local path with automatic format detection
-pub fn load_model_from_path(
-    path: &Path,
-) -> Result<ModelFormat> {
+pub fn load_model_from_path(path: &Path) -> Result<ModelFormat> {
     info!("Loading model from local path: {:?}", path);
 
     if !path.exists() {
@@ -880,9 +894,10 @@ pub fn load_model_from_path(
     // Verify model
     let verification = verify_model(path)?;
     if !verification.is_valid {
-        return Err(ModelLoaderError::InvalidFormat(
-            format!("Model verification failed: {:?}", verification.errors)
-        ));
+        return Err(ModelLoaderError::InvalidFormat(format!(
+            "Model verification failed: {:?}",
+            verification.errors
+        )));
     }
 
     Ok(verification.format)
@@ -974,9 +989,11 @@ mod tests {
     fn test_list_available_models() {
         let models = list_available_models();
         assert!(!models.is_empty());
-        
+
         // Check for SafeTensors model
-        let has_safetensors = models.iter().any(|m| m.tags.contains(&"safetensors".to_string()));
+        let has_safetensors = models
+            .iter()
+            .any(|m| m.tags.contains(&"safetensors".to_string()));
         assert!(has_safetensors, "Should include SafeTensors model");
     }
 

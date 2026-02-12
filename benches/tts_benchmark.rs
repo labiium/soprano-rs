@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tokio::runtime::Runtime;
 
 use soprano_tts::chunker::{run_chunker, ChunkerInput};
@@ -41,13 +41,22 @@ fn bench_normalization(c: &mut Criterion) {
 
     let texts = vec![
         ("short", "Hello world!"),
-        ("medium", "Dr. Smith has 5 patients today. The meeting is at 3:00 PM!"),
-        ("long", "Dr. Smith has 5 patients today. The meeting is at 3:00 PM. \
+        (
+            "medium",
+            "Dr. Smith has 5 patients today. The meeting is at 3:00 PM!",
+        ),
+        (
+            "long",
+            "Dr. Smith has 5 patients today. The meeting is at 3:00 PM. \
                   Mr. Johnson works at IBM and uses CPU and GPU for processing. \
-                  The price is $100.50 and he has 1st place in the competition."),
+                  The price is $100.50 and he has 1st place in the competition.",
+        ),
         ("with_numbers", "1 2 3 4 5 6 7 8 9 10. 100 200 300 400 500."),
-        ("with_abbreviations", "Dr. Mr. Mrs. Ms. Prof. Sr. Jr. St. Ave. Blvd. Rd. \
-                               USA UK EU UN NATO FBI CIA NASA MIT IBM CPU GPU API CLI"),
+        (
+            "with_abbreviations",
+            "Dr. Mr. Mrs. Ms. Prof. Sr. Jr. St. Ave. Blvd. Rd. \
+                               USA UK EU UN NATO FBI CIA NASA MIT IBM CPU GPU API CLI",
+        ),
     ];
 
     for (name, text) in texts {
@@ -65,13 +74,19 @@ fn bench_text_splitter(c: &mut Criterion) {
 
     let texts = vec![
         ("short", "Hello world. This is a test."),
-        ("medium", "First sentence. Second sentence. Third sentence. \
-                    Fourth sentence. Fifth sentence."),
-        ("long", "The quick brown fox jumps over the lazy dog. \
+        (
+            "medium",
+            "First sentence. Second sentence. Third sentence. \
+                    Fourth sentence. Fifth sentence.",
+        ),
+        (
+            "long",
+            "The quick brown fox jumps over the lazy dog. \
                   This is a longer paragraph with multiple sentences. \
                   Each sentence should be processed correctly. \
                   The text splitter should handle this well. \
-                  We want to test performance with various lengths."),
+                  We want to test performance with various lengths.",
+        ),
     ];
 
     let desired_lengths = vec![50, 100, 200];
@@ -109,8 +124,14 @@ fn bench_chunker(c: &mut Criterion) {
 
             tokio::spawn(run_chunker(in_rx, out_tx, config));
 
-            in_tx.send(ChunkerInput::Text("Hello world. ".to_string())).await.unwrap();
-            in_tx.send(ChunkerInput::Text("How are you?".to_string())).await.unwrap();
+            in_tx
+                .send(ChunkerInput::Text("Hello world. ".to_string()))
+                .await
+                .unwrap();
+            in_tx
+                .send(ChunkerInput::Text("How are you?".to_string()))
+                .await
+                .unwrap();
             in_tx.send(ChunkerInput::Stop).await.unwrap();
 
             while out_rx.recv().await.is_some() {}
@@ -127,7 +148,10 @@ fn bench_chunker(c: &mut Criterion) {
 
             let text = "First sentence. Second sentence. Third sentence. \
                        Fourth sentence. Fifth sentence.";
-            in_tx.send(ChunkerInput::Text(text.to_string())).await.unwrap();
+            in_tx
+                .send(ChunkerInput::Text(text.to_string()))
+                .await
+                .unwrap();
             in_tx.send(ChunkerInput::Stop).await.unwrap();
 
             while out_rx.recv().await.is_some() {}
@@ -144,7 +168,10 @@ fn bench_chunker(c: &mut Criterion) {
             tokio::spawn(run_chunker(in_rx, out_tx, config));
 
             for i in 0..100 {
-                in_tx.send(ChunkerInput::Text(format!("Word {}. ", i))).await.unwrap();
+                in_tx
+                    .send(ChunkerInput::Text(format!("Word {}. ", i)))
+                    .await
+                    .unwrap();
             }
             in_tx.send(ChunkerInput::Stop).await.unwrap();
 
@@ -188,10 +215,7 @@ fn bench_audio_operations(c: &mut Criterion) {
             group.throughput(Throughput::Bytes(num_samples as u64 * 4));
             group.bench_function(bench_name, |b| {
                 b.iter(|| {
-                    let bytes: Vec<u8> = audio
-                        .iter()
-                        .flat_map(|&s| s.to_le_bytes())
-                        .collect();
+                    let bytes: Vec<u8> = audio.iter().flat_map(|&s| s.to_le_bytes()).collect();
                     black_box(bytes);
                 });
             });

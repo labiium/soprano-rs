@@ -26,8 +26,8 @@ use tracing::{error, info, warn, Level};
 
 use soprano_tts::{
     config::{
-        init_tracing, load_dotenv, parse_device, Cli, Commands, DownloadArgs, GenerateArgs,
-        GenerationConfig, ServeArgs, StreamConfig,
+        init_tracing, load_dotenv, parse_device, Cli, Commands, DownloadArgs, EngineId,
+        GenerateArgs, GenerationConfig, ServeArgs, StreamConfig,
     },
     model_loader::{cuda_available, list_available_models, ModelCache},
     normalization::clean_text,
@@ -74,6 +74,7 @@ async fn run_server(args: ServeArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Log configuration
     info!(
         host = %args.host,
+        engine = args.engine.as_str(),
         port = args.port,
         device = %args.device,
         workers = args.workers,
@@ -106,8 +107,9 @@ async fn run_server(args: ServeArgs) -> Result<(), Box<dyn std::error::Error>> {
     stream_config.generation.repetition_penalty = args.repetition_penalty;
 
     // Create application state
-    let state = AppState::new(
+    let state = AppState::new_with_engine(
         tts_engine,
+        args.engine,
         stream_config,
         args.tts_inflight(),
         args.include_text,
@@ -145,6 +147,14 @@ async fn initialize_tts_engine(
     args: &ServeArgs,
     device: candle_core::Device,
 ) -> Result<Arc<dyn TtsEngine>, Box<dyn std::error::Error>> {
+    if args.engine != EngineId::Soprano {
+        return Err(format!(
+            "engine '{}' is not implemented yet for server mode",
+            args.engine.as_str()
+        )
+        .into());
+    }
+
     // Check if model download is enabled and needed
     let model_path = if args.download {
         let cache_dir = args.cache_dir();
@@ -329,14 +339,9 @@ async fn download_single_model(
     };
 
     // Download the model
-    let model_path = download_model(
-        model_id,
-        &cache_path,
-        files.as_deref(),
-        Some(config),
-    )
-    .await
-    .map_err(|e| format!("Failed to download model: {}", e))?;
+    let model_path = download_model(model_id, &cache_path, files.as_deref(), Some(config))
+        .await
+        .map_err(|e| format!("Failed to download model: {}", e))?;
 
     info!("Model downloaded successfully to: {:?}", model_path);
 
@@ -541,6 +546,14 @@ async fn verify_model(
 
 /// Run the generate subcommand
 async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
+    if args.engine != EngineId::Soprano {
+        return Err(format!(
+            "engine '{}' is not implemented yet for generate mode",
+            args.engine.as_str()
+        )
+        .into());
+    }
+
     println!("╔════════════════════════════════════════╗");
     println!("║     Soprano TTS Sample Generator       ║");
     println!("╚════════════════════════════════════════╝");
@@ -566,6 +579,7 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
 
     // Show configuration
     println!("Configuration:");
+    println!("  Engine: {}", args.engine.as_str());
     println!("  Mode: Real Model");
     println!("  Model Path: {:?}", model_path);
     println!("  Device: {:?}", device);
@@ -586,7 +600,12 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
     }
 
     // Check for required files
-    let required_files = ["model.safetensors", "tokenizer.json", "config.json", "decoder.pth"];
+    let required_files = [
+        "model.safetensors",
+        "tokenizer.json",
+        "config.json",
+        "decoder.pth",
+    ];
     let mut missing = Vec::new();
     for file in &required_files {
         if !model_path.join(file).exists() {
@@ -888,7 +907,10 @@ async fn generate_with_model(
             response.num_samples, response.duration_secs
         );
         println!("Tokens generated: {}", response.metadata.tokens_generated);
-        println!("Processing time: {}ms", response.metadata.processing_time_ms);
+        println!(
+            "Processing time: {}ms",
+            response.metadata.processing_time_ms
+        );
         println!("LLM time: {}ms", response.metadata.llm_time_ms);
         println!("Decoder time: {}ms", response.metadata.decoder_time_ms);
 
@@ -982,14 +1004,10 @@ mod tests {
     #[test]
     fn test_cli_device_options() {
         let cli_cuda = Cli::parse_from(["soprano-tts", "serve", "--device", "cuda"]);
-        assert!(
-            matches!(cli_cuda.command, Some(Commands::Serve(args)) if args.device == "cuda")
-        );
+        assert!(matches!(cli_cuda.command, Some(Commands::Serve(args)) if args.device == "cuda"));
 
         let cli_cpu = Cli::parse_from(["soprano-tts", "serve", "--device", "cpu"]);
-        assert!(
-            matches!(cli_cpu.command, Some(Commands::Serve(args)) if args.device == "cpu")
-        );
+        assert!(matches!(cli_cpu.command, Some(Commands::Serve(args)) if args.device == "cpu"));
     }
 
     #[test]

@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::{
     chunker::{Chunk, ChunkerInput},
-    config::StreamConfig,
+    config::{EngineId, StreamConfig},
     protocol::{ClientMessage, ServerMessage},
     tts::{TtsEngine, TtsRequest, TtsResponse},
 };
@@ -39,6 +39,8 @@ use crate::{
 pub struct AppState {
     /// TTS engine for synthesis
     pub tts: Arc<dyn TtsEngine>,
+    /// Engine backing this server instance
+    pub engine: EngineId,
     /// Default streaming configuration
     pub default_config: Arc<RwLock<StreamConfig>>,
     /// Semaphore to limit concurrent TTS requests
@@ -74,9 +76,21 @@ impl AppState {
         tts_inflight: usize,
         include_text: bool,
     ) -> Self {
+        Self::new_with_engine(tts, EngineId::Soprano, config, tts_inflight, include_text)
+    }
+
+    /// Create a new application state with explicit engine routing.
+    pub fn new_with_engine(
+        tts: Arc<dyn TtsEngine>,
+        engine: EngineId,
+        config: StreamConfig,
+        tts_inflight: usize,
+        include_text: bool,
+    ) -> Self {
         let limit = tts_inflight.max(1);
         Self {
             tts,
+            engine,
             default_config: Arc::new(RwLock::new(config)),
             tts_inflight: Arc::new(Semaphore::new(limit)),
             tts_inflight_limit: limit,
@@ -94,7 +108,10 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// Start the server and serve requests indefinitely
-pub async fn serve(listener: TcpListener, state: AppState) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn serve(
+    listener: TcpListener,
+    state: AppState,
+) -> Result<(), Box<dyn std::error::Error>> {
     serve_with_shutdown(listener, state, std::future::pending()).await
 }
 
@@ -122,10 +139,7 @@ async fn healthz() -> &'static str {
 }
 
 /// WebSocket upgrade handler
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -136,6 +150,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     // Clone config for this connection
     let config = Arc::new(RwLock::new(state.default_config.read().await.clone()));
+    let selected_engine = Arc::new(RwLock::new(state.engine));
 
     // Channel for outgoing WebSocket messages
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(16);
@@ -161,7 +176,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     // Spawn TTS processing task
     let tts = state.tts.clone();
+    let server_engine = state.engine;
     let config_for_tts = config.clone();
+    let selected_engine_for_tts = selected_engine.clone();
     let inflight_for_tts = inflight.clone();
     let tts_sender = tts_tx.clone();
     let (tts_done_tx, tts_done_rx) = oneshot::channel::<()>();
@@ -183,6 +200,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             debug!(chunk_id = chunk.id, "processing chunk");
                             let tts = tts.clone();
                             let config_for_tts = config_for_tts.clone();
+                            let selected_engine_for_tts = selected_engine_for_tts.clone();
                             let inflight_for_tts = inflight_for_tts.clone();
 
                             let fut = async move {
@@ -200,6 +218,18 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
                                 // Build TTS request from config
                                 let req = {
+                                    let engine = *selected_engine_for_tts.read().await;
+                                    if engine != server_engine {
+                                        return TtsJobResult {
+                                            id: chunk.id,
+                                            result: Err(format!(
+                                                "requested engine '{}' is not available on this server (serving '{}')",
+                                                engine.as_str(),
+                                                server_engine.as_str()
+                                            )),
+                                        };
+                                    }
+
                                     let cfg = config_for_tts.read().await;
                                     TtsRequest {
                                         id: chunk.id,
@@ -255,17 +285,17 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         while let Some(job) = tts_rx.recv().await {
             pending.insert(job.id, job.result);
 
-                // Emit in-order
-                while let Some(result) = pending.remove(&next_id) {
-                    match result {
-                        Ok(response) => {
-                            debug!(chunk_id = %response.id, "sending audio frame");
-                            let frame = build_audio_frame(&response, next_id, include_text);
-                            if let Err(e) = out_tx_clone.send(Message::Binary(frame)).await {
-                                warn!(error = %e, "failed to send audio frame");
-                                break;
-                            }
+            // Emit in-order
+            while let Some(result) = pending.remove(&next_id) {
+                match result {
+                    Ok(response) => {
+                        debug!(chunk_id = %response.id, "sending audio frame");
+                        let frame = build_audio_frame(&response, next_id, include_text);
+                        if let Err(e) = out_tx_clone.send(Message::Binary(frame)).await {
+                            warn!(error = %e, "failed to send audio frame");
+                            break;
                         }
+                    }
                     Err(message) => {
                         warn!(error = %message, "tts error");
                         let error_msg = serde_json::to_string(&ServerMessage::Error { message })
@@ -298,8 +328,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     });
 
     // Send ready message to client
-    let ready_msg = serde_json::to_string(&ServerMessage::Ready { session_id: session_id.clone() })
-        .unwrap_or_else(|_| "{\"type\":\"ready\"}".to_string());
+    let ready_msg = serde_json::to_string(&ServerMessage::Ready {
+        session_id: session_id.clone(),
+    })
+    .unwrap_or_else(|_| "{\"type\":\"ready\"}".to_string());
 
     if let Err(e) = out_tx.send(Message::Text(ready_msg)).await {
         error!(error = %e, "failed to send ready message");
@@ -355,6 +387,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                 }
                             }
                             Ok(ClientMessage::Config {
+                                engine,
                                 voice_path,
                                 speed,
                                 language_id,
@@ -365,6 +398,16 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             }) => {
                                 if !stop_requested {
                                     info!("received config update");
+                                    if let Some(engine) = engine {
+                                        *selected_engine.write().await = engine;
+                                        if engine != state.engine {
+                                            warn!(
+                                                requested_engine = engine.as_str(),
+                                                active_engine = state.engine.as_str(),
+                                                "client requested engine not active on this server"
+                                            );
+                                        }
+                                    }
                                     let mut cfg = config.write().await;
                                     if let Some(voice_path) = voice_path {
                                         cfg.voice_path = Some(voice_path);
@@ -492,7 +535,7 @@ fn build_audio_frame(response: &TtsResponse, _chunk_id: u64, include_text: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tts::{TtsError, AudioFormat, GenerationMetadata};
+    use crate::tts::{AudioFormat, GenerationMetadata, TtsError};
     use async_trait::async_trait;
 
     struct MockTtsEngine;
@@ -516,15 +559,18 @@ mod tests {
         async fn synthesize_streaming(
             &self,
             _req: TtsRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::tts::TtsChunk, TtsError>>, TtsError> {
+        ) -> Result<tokio::sync::mpsc::Receiver<Result<crate::tts::TtsChunk, TtsError>>, TtsError>
+        {
             let (tx, rx) = tokio::sync::mpsc::channel(4);
             tokio::spawn(async move {
-                let _ = tx.send(Ok(crate::tts::TtsChunk {
-                    sequence: 0,
-                    pcm: vec![0.0f32; 256],
-                    is_final: true,
-                    text: Some("test".to_string()),
-                })).await;
+                let _ = tx
+                    .send(Ok(crate::tts::TtsChunk {
+                        sequence: 0,
+                        pcm: vec![0.0f32; 256],
+                        is_final: true,
+                        text: Some("test".to_string()),
+                    }))
+                    .await;
             });
             Ok(rx)
         }
@@ -553,8 +599,9 @@ mod tests {
     fn test_app_state_creation() {
         let tts: Arc<dyn TtsEngine> = Arc::new(MockTtsEngine);
         let config = StreamConfig::default();
-        let state = AppState::new(tts, config, 4, false);
+        let state = AppState::new_with_engine(tts, EngineId::Soprano, config, 4, false);
 
+        assert_eq!(state.engine, EngineId::Soprano);
         assert_eq!(state.tts_inflight_limit, 4);
         assert!(!state.include_text);
     }

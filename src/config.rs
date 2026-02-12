@@ -1,7 +1,31 @@
 //! Configuration and CLI for Soprano TTS Server
 
 use clap::{Args, Parser, Subcommand};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// Engine identifier used for routing CLI and request handling.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineId {
+    Soprano,
+    Chatterbox,
+}
+
+impl Default for EngineId {
+    fn default() -> Self {
+        Self::Soprano
+    }
+}
+
+impl EngineId {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Soprano => "soprano",
+            Self::Chatterbox => "chatterbox",
+        }
+    }
+}
 
 /// Command line arguments with subcommands
 #[derive(Parser, Debug, Clone)]
@@ -15,6 +39,9 @@ pub struct Cli {
     /// Legacy compatibility: if no subcommand provided, these are used for serve
     #[arg(long, default_value = "0.0.0.0", hide = true)]
     pub host: Option<String>,
+
+    #[arg(long, default_value = "soprano", hide = true)]
+    pub engine: Option<EngineId>,
 
     #[arg(long, default_value = "8080", hide = true)]
     pub port: Option<u16>,
@@ -87,6 +114,7 @@ impl Cli {
     pub fn to_serve_args(&self) -> ServeArgs {
         ServeArgs {
             host: self.host.clone().unwrap_or_else(|| "0.0.0.0".to_string()),
+            engine: self.engine.unwrap_or_default(),
             port: self.port.unwrap_or(8080),
             model_path: self
                 .model_path
@@ -132,6 +160,10 @@ pub struct ServeArgs {
     /// Host address to bind to
     #[arg(long, default_value = "0.0.0.0")]
     pub host: String,
+
+    /// Engine to serve requests with
+    #[arg(long, value_enum, default_value_t = EngineId::Soprano)]
+    pub engine: EngineId,
 
     /// Port to listen on
     #[arg(long, default_value_t = 8080)]
@@ -267,6 +299,10 @@ pub struct GenerateArgs {
     /// Text to synthesize
     #[arg(short, long, group = "input")]
     pub text: Option<String>,
+
+    /// Engine to use for synthesis
+    #[arg(long, value_enum, default_value_t = EngineId::Soprano)]
+    pub engine: EngineId,
 
     /// File containing text to synthesize (one sample per line)
     #[arg(short, long, group = "input")]
@@ -532,6 +568,7 @@ mod tests {
             _ => panic!("expected serve command"),
         };
         assert_eq!(args.host, "0.0.0.0");
+        assert_eq!(args.engine, EngineId::Soprano);
         assert_eq!(args.port, 8080);
         assert_eq!(args.workers, 2);
         assert_eq!(args.min_words, 2);
@@ -552,6 +589,16 @@ mod tests {
             _ => panic!("expected serve command"),
         };
         assert_eq!(args_with_limit.tts_inflight(), 5);
+    }
+
+    #[test]
+    fn test_engine_cli_parsing() {
+        let cli = Cli::parse_from(["soprano-tts", "serve", "--engine", "chatterbox"]);
+        let args = match cli.command {
+            Some(Commands::Serve(a)) => a,
+            _ => panic!("expected serve command"),
+        };
+        assert_eq!(args.engine, EngineId::Chatterbox);
     }
 
     #[test]

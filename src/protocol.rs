@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::EngineId;
+
 /// Messages sent from the client to the server
 ///
 /// Clients use these messages to configure the TTS session, send text to synthesize,
@@ -17,6 +19,9 @@ pub enum ClientMessage {
     /// This message should be sent before any Text messages to establish
     /// the session configuration. If not sent, default values will be used.
     Config {
+        /// Engine identifier for routing the request (optional, defaults to soprano)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        engine: Option<EngineId>,
         /// Path to voice checkpoint file (optional, for future voice cloning)
         voice_path: Option<String>,
         /// Speech speed multiplier (1.0 = normal speed)
@@ -59,6 +64,14 @@ impl ClientMessage {
     pub fn voice_path(&self) -> Option<&str> {
         match self {
             ClientMessage::Config { voice_path, .. } => voice_path.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Get the engine from a Config message
+    pub fn engine(&self) -> Option<EngineId> {
+        match self {
+            ClientMessage::Config { engine, .. } => *engine,
             _ => None,
         }
     }
@@ -219,6 +232,7 @@ mod tests {
 
         match &msg {
             ClientMessage::Config {
+                engine,
                 voice_path,
                 speed,
                 language_id,
@@ -227,6 +241,7 @@ mod tests {
                 max_chars,
                 max_delay_ms,
             } => {
+                assert_eq!(*engine, None);
                 assert_eq!(voice_path.as_deref(), Some("/path/to/voice"));
                 assert_eq!(*speed, Some(1.2));
                 assert_eq!(language_id.as_deref(), Some("en"));
@@ -242,6 +257,7 @@ mod tests {
     #[test]
     fn test_client_message_config_helpers() {
         let msg = ClientMessage::Config {
+            engine: Some(EngineId::Soprano),
             voice_path: Some("/voice".to_string()),
             speed: Some(1.5),
             language_id: Some("en".to_string()),
@@ -251,6 +267,7 @@ mod tests {
             max_delay_ms: Some(300),
         };
 
+        assert_eq!(msg.engine(), Some(EngineId::Soprano));
         assert_eq!(msg.voice_path(), Some("/voice"));
         assert_eq!(msg.speed(), Some(1.5));
         assert_eq!(msg.language_id(), Some("en"));
@@ -295,6 +312,20 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_client_message_config_with_engine() {
+        let json = r#"{"type":"config","engine":"chatterbox","speed":1.0}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+
+        match msg {
+            ClientMessage::Config { engine, speed, .. } => {
+                assert_eq!(engine, Some(EngineId::Chatterbox));
+                assert_eq!(speed, Some(1.0));
+            }
+            _ => panic!("Expected Config message"),
+        }
     }
 
     #[test]
