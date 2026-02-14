@@ -14,13 +14,14 @@ High-performance Rust TTS server and CLI for the Soprano model, built on Candle.
 - Health endpoint (`/healthz`)
 - Model download/list/cache utilities
 - Configurable generation and chunking parameters
-- CUDA execution path with optional flash-attn feature
+- **Automatic device detection** - uses best available accelerator (CUDA/Metal/CPU)
+- Cross-platform: Linux, macOS, Windows
 
 ## Requirements
 
 - Rust + Cargo
-- Linux/macOS
-- Optional NVIDIA GPU + CUDA for acceleration
+- Linux/macOS/Windows
+- Optional: NVIDIA GPU (CUDA) or Apple Silicon (Metal) for acceleration
 - Soprano model files (local or downloaded)
 
 Default model ID:
@@ -29,8 +30,33 @@ Default model ID:
 
 ## Build
 
+One command builds for all platforms with automatic accelerator detection:
+
 ```bash
 cargo build --release
+```
+
+The binary uses **dynamic-loading** for accelerators:
+- **macOS**: Includes Metal support (auto-detected at runtime, requires macOS 10.14+)
+- **Linux/Windows**: CUDA support auto-detected at runtime if NVIDIA drivers installed
+- **All platforms**: Falls back to CPU if no GPU available
+
+No CUDA toolkit required at build time!
+
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/labiium/soprano-rs/releases):
+
+| Platform | Binary | Accelerators |
+|----------|--------|--------------|
+| macOS | `soprano-macos.tar.gz` | Metal, CPU |
+| Linux | `soprano-linux.tar.gz` | CUDA*, CPU |
+| Windows | `soprano-windows.zip` | CUDA*, CPU |
+
+\* CUDA support requires NVIDIA drivers installed. Binary uses dynamic-loading to detect at runtime.
+
+All binaries auto-detect the best available accelerator.
+cargo build --release --features cuda
 ```
 
 ## Install
@@ -65,6 +91,7 @@ Commands:
 - `download` - Download model from HuggingFace
 - `list` - List available models
 - `cache` - Show cache information
+- `devices` - Show available compute devices
 - `generate` - Generate audio from text/file
 
 If no command is provided, it defaults to `serve`.
@@ -75,11 +102,19 @@ If no command is provided, it defaults to `serve`.
 # List models
 soprano list
 
+# Show available compute devices
+soprano devices
+
 # Download default model
 soprano download ekwek/Soprano-1.1-80M
 
-# Start server
+# Start server (auto-detects best device)
 soprano serve --host 0.0.0.0 --port 8080
+
+# Force specific device
+soprano serve --device cuda      # NVIDIA GPU
+soprano serve --device metal     # Apple GPU (macOS)
+soprano serve --device cpu       # CPU only
 
 # Generate one WAV file
 soprano generate --text "Hello from soprano-rs" --output sample.wav
@@ -106,15 +141,7 @@ hound = "3.5"
 ```rust
 use candle_core::Device;
 use hound::{SampleFormat, WavSpec, WavWriter};
-use soprano::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest};
-
-fn select_device(name: &str) -> Device {
-    match name.to_lowercase().as_str() {
-        "cuda" | "gpu" => Device::new_cuda(0).unwrap_or(Device::Cpu),
-        "metal" | "mps" => Device::new_metal(0).unwrap_or(Device::Cpu),
-        _ => Device::Cpu,
-    }
-}
+use soprano::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest, auto_select_device};
 
 fn write_wav(path: &str, samples: &[f32], sample_rate: u32) -> Result<(), Box<dyn std::error::Error>> {
     let spec = WavSpec {
@@ -134,7 +161,9 @@ fn write_wav(path: &str, samples: &[f32], sample_rate: u32) -> Result<(), Box<dy
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let device = select_device("cuda");
+    // Auto-select the best available device
+    let device = auto_select_device();
+    println!("Using device: {:?}", device);
 
     let engine = SopranoTtsEngineBuilder::new("models")
         .with_device(device)
@@ -156,12 +185,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use candle_core::Device;
 use hound::{SampleFormat, WavSpec, WavWriter};
-use soprano::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest};
+use soprano::{SopranoTtsEngineBuilder, TtsEngine, TtsRequest, auto_select_device};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = SopranoTtsEngineBuilder::new("models")
-        .with_device(Device::new_cuda(0).unwrap_or(Device::Cpu))
+        .with_device(auto_select_device())
         .build()
         .await?;
 
@@ -230,11 +259,22 @@ Binary audio frame format:
 
 You can configure runtime via CLI flags and environment variables (see `.env.example`).
 
-Common server options:
+### Device Selection
+
+The `--device` option supports:
+
+- `auto` (default) - Automatically detect and use the best available accelerator:
+  - macOS: Metal (Apple Silicon/AMD) → CPU
+  - Linux/Windows: CUDA (NVIDIA) → CPU
+- `cuda` - Force NVIDIA CUDA GPU
+- `metal` - Force Apple Metal (macOS only)
+- `cpu` - Force CPU only
+
+### Common Server Options
 
 - `--host`, `--port`
 - `--model-path`, `--model-id`, `--download`, `--cache-dir`
-- `--device` (`cuda`, `cpu`, `metal`)
+- `--device` (`auto`, `cuda`, `metal`, `cpu`)
 - `--workers`, `--tts-inflight`
 - `--temperature`, `--top-p`, `--repetition-penalty`
 - `--sample-rate`

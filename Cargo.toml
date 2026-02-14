@@ -7,8 +7,6 @@ description = "High-performance Rust TTS server using Candle and Soprano model"
 license = "Apache-2.0"
 
 [profile.dev]
-# ML workloads are extremely slow with Rust's default debug settings.
-# We keep debug symbols but enable optimization so `cargo run` is usable.
 opt-level = 3
 debug = 1
 overflow-checks = false
@@ -29,11 +27,12 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# ML - Candle
-candle-core = { version = "0.9", features = ["cuda"] }
-candle-nn = { version = "0.9", features = ["cuda"] }
-candle-transformers = { version = "0.9", features = ["cuda"] }
-candle-flash-attn = { version = "0.9", optional = true }
+# ML - Candle from git for dynamic-linking support
+# Allows building without CUDA toolkit installed
+candle-core = { git = "https://github.com/huggingface/candle.git", default-features = false }
+candle-nn = { git = "https://github.com/huggingface/candle.git", default-features = false }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", default-features = false }
+candle-flash-attn = { git = "https://github.com/huggingface/candle.git", optional = true, default-features = false }
 
 # Tokenization
 tokenizers = "0.20"
@@ -59,6 +58,10 @@ dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
+# Terminal colors
+owo-colors = "4.0"
+supports-color = "3.0"
+
 # Error handling
 thiserror = "1"
 anyhow = "1"
@@ -78,7 +81,7 @@ bytes = "1"
 bytemuck = "1.14"
 dirs = "5.0"
 
-# Model downloading and HuggingFace integration
+# Model downloading
 reqwest = { version = "0.12", features = ["stream", "rustls-tls"], optional = true }
 hf-hub = { version = "0.3", optional = true }
 indicatif = { version = "0.17", optional = true }
@@ -90,22 +93,33 @@ hex = { version = "0.4", optional = true }
 memmap2 = "0.9"
 walkdir = "2.5"
 
-# SafeTensors format (included in candle-core)
+# SafeTensors
 safetensors = "0.4.5"
 
+# Note: All accelerators use dynamic-loading
+# Build works without CUDA toolkit installed
+# CUDA/Metal libraries loaded at runtime if available
+
+# Platform-specific: macOS with Metal
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-core = { git = "https://github.com/huggingface/candle.git", features = ["metal"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", features = ["metal"] }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", features = ["metal"] }
+
 [features]
+# Default: All accelerators via dynamic-loading (no compile-time deps)
 default = ["model-download"]
-model-download = ["dep:reqwest", "dep:indicatif", "dep:hf-hub", "dep:sha2", "dep:hex"]
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "flash-attn"]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+
+# Optional flash-attn for CUDA (requires CUDA toolkit)
 flash-attn = ["dep:candle-flash-attn"]
+
+# Model downloading functionality (network access)
+model-download = ["dep:reqwest", "dep:indicatif", "dep:hf-hub", "dep:sha2", "dep:hex"]
 
 [dev-dependencies]
 tokio-test = "0.4"
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 tempfile = "3.10"
-
-# Test dependencies for comprehensive testing
 tokio-tungstenite = "0.23"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["rustls-tls"] }

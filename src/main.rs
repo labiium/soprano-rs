@@ -22,13 +22,18 @@ use clap::Parser;
 use hound::{WavSpec, WavWriter};
 use tokio::net::TcpListener;
 use tokio::signal;
-use tracing::{error, info, warn, Level};
+use tracing::{debug, error, info, warn, Level};
 
 use soprano::{
+    cli_style::{
+        print_banner, print_box, print_devices_box, print_device_status, print_error, print_info,
+        print_section, print_success, print_usage_examples, print_warning,
+    },
     config::{
         init_tracing, load_dotenv, parse_device, Cli, Commands, DownloadArgs, GenerateArgs,
         GenerationConfig, ServeArgs, StreamConfig,
     },
+    device_detection::{auto_select_device, get_all_device_info, get_recommended_device_type},
     model_loader::{cuda_available, list_available_models, ModelCache},
     normalization::clean_text,
     server::{self, AppState},
@@ -52,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::List) => run_list().await,
         Some(Commands::Cache) => run_cache(None).await,
         Some(Commands::Generate(args)) => run_generate(args).await,
+        Some(Commands::Devices) => run_devices().await,
         None => {
             // Backward compatibility: if no subcommand, default to serve
             // using the legacy args from the top-level CLI
@@ -66,35 +72,46 @@ async fn run_server(args: ServeArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing/logging
     init_tracing(&args.log);
 
+    // Show fancy startup
+    if args.device == "auto" {
+        print_banner();
+    }
+
     info!(
         version = env!("CARGO_PKG_VERSION"),
         "starting soprano server"
     );
 
-    // Log configuration
-    info!(
-        host = %args.host,
-        engine = args.engine.as_str(),
-        port = args.port,
-        device = %args.device,
-        workers = args.workers,
-        model_id = %args.model_id,
-        "configuration loaded"
-    );
+    // Show device availability summary
+    let device = if args.device == "auto" {
+        print_section("🔍  Detecting Compute Devices");
+        let devices = get_all_device_info();
+        for device_info in &devices {
+            print_device_status(&device_info.name, device_info.available);
+        }
+        println!();
+        parse_device(&args.device)
+    } else {
+        parse_device(&args.device)
+    };
 
-    // Parse device configuration
-    let device = parse_device(&args.device);
-    info!(device = ?device, "using device");
+    let device_name = match &device {
+        candle_core::Device::Cpu => "CPU",
+        candle_core::Device::Cuda(_) => "CUDA (NVIDIA GPU)",
+        candle_core::Device::Metal(_) => "Metal (Apple GPU)",
+    };
+
+    print_success(&format!("Using compute device: {}", device_name));
 
     // Initialize TTS engine
-    info!("initializing TTS engine...");
+    print_info("Initializing TTS engine...");
     let tts_engine = match initialize_tts_engine(&args, device).await {
         Ok(engine) => {
-            info!("TTS engine initialized successfully");
+            print_success("TTS engine initialized successfully!");
             engine
         }
         Err(e) => {
-            error!(error = %e, "failed to initialize TTS engine");
+            print_error(&format!("Failed to initialize TTS engine: {}", e));
             return Err(e);
         }
     };
@@ -378,20 +395,25 @@ async fn download_single_model(
 
 /// Run the list subcommand
 async fn run_list() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Available Soprano TTS Models:");
-    println!();
+    print_banner();
+    print_section("📦  Available Models");
 
     let models = list_available_models();
 
-    for model in models {
-        println!("  Model ID:  {}", model.model_id);
-        println!("  Description: {}", model.description);
-        println!("  Size: ~{} MB", model.size_mb);
-        println!("  Tags: {}", model.tags.join(", "));
+    for (i, model) in models.iter().enumerate() {
+        let size_str = format!("~{} MB", model.size_mb);
+        let tags_str = model.tags.join(", ");
+        let model_info = vec![
+            ("ID", model.model_id.as_str()),
+            ("Description", model.description.as_str()),
+            ("Size", size_str.as_str()),
+            ("Tags", tags_str.as_str()),
+        ];
+        print_box(&format!("Model {}", i + 1), &model_info);
         println!();
     }
 
-    println!("Download a model with:");
+    print_info("Download a model with:");
     println!("  soprano download <MODEL_ID>");
 
     Ok(())
@@ -536,29 +558,82 @@ async fn verify_model(
     Ok(())
 }
 
+/// Run the devices subcommand
+async fn run_devices() -> Result<(), Box<dyn std::error::Error>> {
+    use soprano::device_detection::{Platform, DeviceType};
+    
+    // Print fancy banner
+    print_banner();
+    
+    // Get device info
+    let platform = Platform::current();
+    let devices = get_all_device_info();
+    let recommended = get_recommended_device_type();
+    let selected = auto_select_device();
+    
+    // Build device list
+    let device_list: Vec<(&str, bool)> = devices
+        .iter()
+        .map(|d| (d.name.as_str(), d.available))
+        .collect();
+    
+    // Print fancy devices box
+    print_devices_box(
+        platform.as_str(),
+        &device_list,
+        recommended.as_str(),
+        match &selected {
+            candle_core::Device::Cpu => "CPU",
+            candle_core::Device::Cuda(_) => "CUDA",
+            candle_core::Device::Metal(_) => "Metal",
+        }
+    );
+    
+    // Print usage examples
+    print_usage_examples();
+    
+    Ok(())
+}
+
 /// Run the generate subcommand
 async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("╔════════════════════════════════════════╗");
-    println!("║     Soprano TTS Sample Generator       ║");
-    println!("╚════════════════════════════════════════╝");
-    println!();
+    // Print fancy banner
+    print_banner();
+    print_section("🎤  TTS Sample Generator");
 
     // Determine model path (always real model)
-    let model_path = args
+    let model_path = match args
         .model_path
         .clone()
-        .or_else(get_default_model_path)
-        .ok_or_else(|| {
-            "Model not found. Download with: soprano download ekwek/Soprano-1.1-80M".to_string()
-        })?;
+        .or_else(get_default_model_path) {
+        Some(path) => path,
+        None => {
+            print_error("Model not found!");
+            print_info("Download with: soprano download ekwek/Soprano-1.1-80M");
+            std::process::exit(1);
+        }
+    };
 
-    // Determine device
-    let requested_device = parse_device(&args.device);
-    let device = if args.device.to_lowercase() == "cuda" && !cuda_available() {
-        println!("Warning: CUDA not available, falling back to CPU");
-        candle_core::Device::Cpu
+    // Determine device with auto-detection
+    let device = if args.device == "auto" {
+        print_info("Auto-detecting best compute device...");
+        let selected = auto_select_device();
+        let name = match &selected {
+            candle_core::Device::Cpu => "CPU",
+            candle_core::Device::Cuda(_) => "CUDA (NVIDIA GPU)",
+            candle_core::Device::Metal(_) => "Metal (Apple GPU)",
+        };
+        print_success(&format!("Selected device: {}", name));
+        selected
     } else {
-        requested_device
+        let selected = parse_device(&args.device);
+        let name = match &selected {
+            candle_core::Device::Cpu => "CPU",
+            candle_core::Device::Cuda(_) => "CUDA",
+            candle_core::Device::Metal(_) => "Metal",
+        };
+        print_info(&format!("Using requested device: {}", name));
+        selected
     };
 
     // Show configuration

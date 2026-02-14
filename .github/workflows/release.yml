@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Build for macOS
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build (macOS)
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir -p soprano-macos
+          cp target/release/soprano soprano-macos/
+          cp README.md LICENSE soprano-macos/ 2>/dev/null || true
+          tar czf soprano-macos.tar.gz soprano-macos
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soprano-macos
+          path: soprano-macos.tar.gz
+
+  # Build for Linux
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build (Linux)
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir -p soprano-linux
+          cp target/release/soprano soprano-linux/
+          cp README.md LICENSE soprano-linux/ 2>/dev/null || true
+          tar czf soprano-linux.tar.gz soprano-linux
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soprano-linux
+          path: soprano-linux.tar.gz
+
+  # Build for Windows
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build (Windows)
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir soprano-windows
+          copy target\release\soprano.exe soprano-windows\
+          copy README.md soprano-windows\
+          copy LICENSE soprano-windows\
+          7z a soprano-windows.zip soprano-windows\
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soprano-windows
+          path: soprano-windows.zip
+
+  # Create GitHub Release with all binaries
+  release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            soprano-macos/soprano-macos.tar.gz
+            soprano-linux/soprano-linux.tar.gz
+            soprano-windows/soprano-windows.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

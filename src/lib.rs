@@ -1,6 +1,8 @@
 pub mod chunker;
+pub mod cli_style;
 pub mod config;
 pub mod decoder;
+pub mod device_detection;
 pub mod model;
 pub mod model_loader;
 pub mod normalization;
@@ -28,4 +30,10 @@ pub use model_loader::{
 pub use model_loader::{
     cuda_available, get_optimal_device, list_available_models, load_decoder_weights,
     load_model_weights, ModelFormat, ModelInfo,
+};
+
+// Re-export device detection utilities
+pub use device_detection::{
+    auto_select_device, get_all_device_info, get_recommended_device_type, is_cuda_available,
+    is_metal_available, parse_device_auto, print_device_summary, DeviceInfo, DeviceType, Platform,
 };

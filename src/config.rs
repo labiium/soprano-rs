@@ -47,7 +47,7 @@ pub struct Cli {
     #[arg(long, default_value = "ekwek/Soprano-1.1-80M", hide = true)]
     pub model_id: Option<String>,
 
-    #[arg(long, default_value = "cuda", hide = true)]
+    #[arg(long, default_value = "auto", hide = true)]
     pub device: Option<String>,
 
     #[arg(long, default_value = "2", hide = true)]
@@ -119,7 +119,7 @@ impl Cli {
                 .model_id
                 .clone()
                 .unwrap_or_else(|| "ekwek/Soprano-1.1-80M".to_string()),
-            device: self.device.clone().unwrap_or_else(|| "cuda".to_string()),
+            device: self.device.clone().unwrap_or_else(|| "auto".to_string()),
             workers: self.workers.unwrap_or(2),
             tts_inflight: self.tts_inflight,
             min_words: self.min_words.unwrap_or(2),
@@ -148,6 +148,8 @@ pub enum Commands {
     Cache,
     /// Generate audio from text
     Generate(GenerateArgs),
+    /// Show available compute devices and auto-selection info
+    Devices,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -172,8 +174,13 @@ pub struct ServeArgs {
     #[arg(long, default_value = "ekwek/Soprano-1.1-80M")]
     pub model_id: String,
 
-    /// Device to use (cuda, cpu, metal)
-    #[arg(long, default_value = "cuda")]
+    /// Device to use (auto, cuda, metal, cpu)
+    ///
+    /// - auto: Automatically select the best available device (recommended)
+    /// - cuda: Use NVIDIA CUDA GPU
+    /// - metal: Use Apple Metal (macOS only)
+    /// - cpu: Use CPU only
+    #[arg(long, default_value = "auto")]
     pub device: String,
 
     /// Number of decoder workers
@@ -311,8 +318,13 @@ pub struct GenerateArgs {
     #[arg(short, long)]
     pub model_path: Option<PathBuf>,
 
-    /// Device to use (cuda, cpu, metal)
-    #[arg(short, long, default_value = "cuda")]
+    /// Device to use (auto, cuda, metal, cpu)
+    ///
+    /// - auto: Automatically select the best available device (recommended)
+    /// - cuda: Use NVIDIA CUDA GPU
+    /// - metal: Use Apple Metal (macOS only)
+    /// - cpu: Use CPU only
+    #[arg(short, long, default_value = "auto")]
     pub device: String,
 
     /// Sample rate
@@ -536,13 +548,28 @@ pub fn load_dotenv() {
     let _ = dotenvy::dotenv();
 }
 
-/// Get device from string
+/// Get device from string with automatic selection support
+///
+/// # Arguments
+/// * `device_str` - Device specification:
+///   - `"auto"` - Automatically select the best available device
+///   - `"cuda"` or `"gpu"` - Use NVIDIA CUDA
+///   - `"metal"` or `"mps"` - Use Apple Metal
+///   - `"cpu"` - Use CPU only
+///
+/// # Examples
+/// ```
+/// use soprano::config::parse_device;
+///
+/// // Auto-select best device
+/// let device = parse_device("auto");
+///
+/// // Force CPU
+/// let device = parse_device("cpu");
+/// ```
 pub fn parse_device(device_str: &str) -> candle_core::Device {
-    match device_str.to_lowercase().as_str() {
-        "cuda" | "gpu" => candle_core::Device::new_cuda(0).unwrap_or(candle_core::Device::Cpu),
-        "metal" | "mps" => candle_core::Device::new_metal(0).unwrap_or(candle_core::Device::Cpu),
-        _ => candle_core::Device::Cpu,
-    }
+    // Use the new auto-detection logic from device_detection module
+    crate::device_detection::parse_device_auto(device_str)
 }
 
 #[cfg(test)]
