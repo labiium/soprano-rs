@@ -5,11 +5,12 @@
 
 use crate::config::{DecoderConfig, GenerationConfig};
 use crate::decoder::SopranoDecoder;
-use crate::model::SopranoModel;
+use crate::model::{DebugConfig, SopranoModel};
 use crate::normalization::clean_text;
 use crate::splitter::split_and_recombine_text;
 use async_trait::async_trait;
 use candle_core::{DType, Device, Tensor};
+use indicatif::{ProgressBar, ProgressStyle};
 // Note: we use tokio::sync::Mutex for async compatibility
 use std::fs::File;
 use std::io::Write;
@@ -541,6 +542,10 @@ pub struct SopranoEngineConfig {
     pub max_text_length: usize,
     /// Inference timeout in milliseconds
     pub timeout_ms: u64,
+    /// Show generation progress
+    pub show_progress: bool,
+    /// Enable debug tensor dumps
+    pub debug_tensors: bool,
 }
 
 impl Default for SopranoEngineConfig {
@@ -554,7 +559,15 @@ impl Default for SopranoEngineConfig {
             decoder_config: DecoderConfig::default(),
             max_text_length: 10000,
             timeout_ms: 60000,
+            show_progress: false,
+            debug_tensors: std::env::var("SOPRANO_DEBUG_TENSORS").is_ok(),
         }
+    }
+}
+
+impl SopranoEngineConfig {
+    fn debug_tensors_enabled(&self) -> bool {
+        self.debug_tensors
     }
 }
 
@@ -570,6 +583,8 @@ pub struct SopranoTtsEngine {
     config: SopranoEngineConfig,
     /// Sample rate for output
     sample_rate: u32,
+    /// Show generation progress
+    show_progress: bool,
 }
 
 impl SopranoTtsEngine {
@@ -581,8 +596,12 @@ impl SopranoTtsEngine {
         info!("Workers: {}", config.num_workers);
 
         // Load the model
-        let model = SopranoModel::from_path(&config.model_path, config.device.clone())
+        let mut model = SopranoModel::from_path(&config.model_path, config.device.clone())
             .map_err(|e| TtsError::ModelError(format!("Failed to load model: {}", e)))?;
+
+        if config.debug_tensors {
+            model.set_debug_config(DebugConfig::default().enable_all());
+        }
 
         info!("Model loaded successfully");
 
@@ -605,6 +624,7 @@ impl SopranoTtsEngine {
             device: config.device.clone(),
             config: config.clone(),
             sample_rate: config.sample_rate,
+            show_progress: config.show_progress,
         })
     }
 
@@ -632,6 +652,21 @@ impl SopranoTtsEngine {
         let start_time = Instant::now();
         let mut metadata = GenerationMetadata::default();
 
+        let progress = if self.show_progress {
+            let pb = ProgressBar::new(gen_config.max_new_tokens as u64);
+            pb.set_style(
+                ProgressStyle::with_template(
+                    "{spinner:.cyan} {prefix:.bright_magenta} [{bar:40.magenta/blue}] {pos}/{len} tokens {msg}",
+                )
+                .unwrap()
+                .progress_chars("█▓▒░"),
+            );
+            pb.set_prefix("Generating");
+            Some(pb)
+        } else {
+            None
+        };
+
         // Preprocess text
         let prompt = self.preprocess_text(text, 0);
         debug!("Preprocessed prompt: {}", prompt);
@@ -644,12 +679,18 @@ impl SopranoTtsEngine {
         let generation_result = {
             let mut model = self.model.lock().await;
             model
-                .generate(&prompt, &model_config)
+                .generate(&prompt, &model_config, progress.as_ref())
                 .map_err(|e| TtsError::ModelError(e.to_string()))?
         };
         metadata.llm_time_ms = llm_start.elapsed().as_millis() as u64;
         metadata.tokens_generated = generation_result.token_count;
         metadata.finish_reason = format!("{:?}", generation_result.finish_reason);
+
+        if let Some(progress) = progress {
+            progress.set_length(generation_result.token_count as u64);
+            progress.set_position(generation_result.token_count as u64);
+            progress.finish_and_clear();
+        }
 
         debug!(
             "Generated {} tokens in {}ms",
@@ -666,7 +707,7 @@ impl SopranoTtsEngine {
             .map_err(|e| TtsError::DecoderError(e.to_string()))?;
 
         // Debug: save hidden states from LLM
-        let debug = std::env::var("SOPRANO_DEBUG_TENSORS").is_ok();
+        let debug = self.config.debug_tensors_enabled();
         if debug {
             let _ = save_hidden_states_debug(&generation_result.hidden_states);
         }
@@ -685,8 +726,9 @@ impl SopranoTtsEngine {
             .squeeze(0)
             .map_err(|e| TtsError::DecoderError(e.to_string()))?;
 
-        // Match Python reference: keep last (T * TOKEN_SIZE - TOKEN_SIZE) samples.
-        // This drops the first token-sized chunk.
+        // Trim audio to match Python reference implementation.
+        // Keep last (T * TOKEN_SIZE - TOKEN_SIZE) samples, which drops the first token.
+        // This aligns with Python's slicing: audio[-desired:] where desired = T*2048 - 2048
         const TOKEN_SIZE: usize = 2048;
         let desired = token_len
             .saturating_mul(TOKEN_SIZE)
@@ -695,13 +737,12 @@ impl SopranoTtsEngine {
             let len = audio_1d
                 .dim(0)
                 .map_err(|e| TtsError::DecoderError(e.to_string()))?;
-            if len > desired {
-                audio_1d
-                    .narrow(0, len - desired, desired)
-                    .map_err(|e| TtsError::DecoderError(e.to_string()))?
-            } else {
-                audio_1d
-            }
+            // Take the tail of the audio (last 'desired' samples)
+            let start = len.saturating_sub(desired);
+            let keep = len.saturating_sub(start);
+            audio_1d
+                .narrow(0, start, keep)
+                .map_err(|e| TtsError::DecoderError(e.to_string()))?
         } else {
             audio_1d
         };
@@ -957,6 +998,7 @@ impl SopranoTtsEngine {
             device: self.device.clone(),
             config: self.config.clone(),
             sample_rate: self.sample_rate,
+            show_progress: self.show_progress,
         })
     }
 
@@ -1059,6 +1101,12 @@ impl SopranoTtsEngineBuilder {
     /// Set the timeout
     pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
         self.config.timeout_ms = timeout_ms;
+        self
+    }
+
+    /// Enable or disable progress output
+    pub fn with_progress(mut self, show_progress: bool) -> Self {
+        self.config.show_progress = show_progress;
         self
     }
 

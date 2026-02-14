@@ -208,10 +208,11 @@ impl ISTFTHead {
         let out_dim = n_fft + 2;
         let out = candle_nn::linear(dim, out_dim, vb.pp("out"))?;
         let win_length = n_fft;
+        // Periodic Hann window matches PyTorch's default torch.hann_window(win_length)
+        // The periodic window divides by win_length (not win_length-1) for exact periodicity
         let window: Vec<f32> = (0..win_length)
             .map(|i| {
-                0.5 * (1.0
-                    - (2.0 * std::f32::consts::PI * i as f32 / (win_length - 1) as f32).cos())
+                0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / win_length as f32).cos())
             })
             .collect();
         let window_sq: Vec<f32> = window.iter().map(|v| v * v).collect();
@@ -296,11 +297,15 @@ impl ISTFTHead {
         let im_v: Vec<Vec<Vec<f32>>> = im.to_vec3()?;
 
         let output_size = (n_frames - 1) * self.hop_length + self.win_length;
-        // FIX: Use (win_length - hop_length) / 2, NOT win_length / 2
-        // This matches Python's padding calculation for "center" mode
-        let pad = (self.win_length - self.hop_length) / 2;
-        // Output length after trimming padding from both sides
-        let output_len = output_size - 2 * pad;
+
+        // Use gentler trim for short sequences to preserve audio content
+        // Short sequences don't have a "steady-state" middle region
+        let pad = if n_frames < 5 {
+            self.n_fft / 4 // 512 for short sequences (T <= 2)
+        } else {
+            self.n_fft / 2 // 1024 for normal sequences
+        };
+        let output_len = output_size.saturating_sub(2 * pad);
 
         let mut spec = vec![Complex32::new(0.0, 0.0); n_freqs];
         let mut time = vec![0.0f32; self.n_fft];
@@ -326,7 +331,7 @@ impl ISTFTHead {
                     .process(&mut spec, &mut time)
                     .map_err(|e| candle_core::Error::Msg(format!("irfft failed: {e}")))?;
 
-                // Note: PyTorch's torch.istft with center=True does NOT apply 1/n_fft
+                // PyTorch's torch.istft with center=True does NOT apply 1/n_fft
                 // normalization. It only normalizes by the window envelope.
                 // The realfft output matches torch.fft.irfft with norm="backward".
 
@@ -335,8 +340,7 @@ impl ISTFTHead {
                     let idx = start + wi;
                     if idx < output_size {
                         let w = self.window[wi];
-                        // FIX: Removed incorrect inv_n normalization
-                        // PyTorch doesn't normalize by n_fft, only by window envelope
+                        // No n_fft normalization here - PyTorch handles this differently
                         out[idx] += tv * w;
                         win_env[idx] += self.window_sq[wi];
                     }
@@ -345,14 +349,14 @@ impl ISTFTHead {
 
             for (i, v) in out.iter_mut().enumerate() {
                 let denom = win_env[i];
-                if denom > 1e-11 {
-                    *v /= denom;
-                }
+                // Clamp envelope to prevent amplification of noise at edges
+                // where window overlap is minimal
+                let denom = denom.max(1e-3);
+                *v /= denom;
             }
 
-            // Trim center padding: remove 'pad' samples from start and end
-            // This matches Python's y = y[:, :, pad:-pad]
-            out_all.extend_from_slice(&out[pad..output_size - pad]);
+            // Apply conditional trim (gentler for short sequences)
+            out_all.extend_from_slice(&out[pad..output_size.saturating_sub(pad)]);
         }
 
         Tensor::new(out_all, re.device())?.reshape(&[b, output_len])

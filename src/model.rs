@@ -15,6 +15,7 @@ use crate::qwen3;
 use candle_core::{DType, Device, Module, Result, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::{LogitsProcessor, Sampling};
+use indicatif::ProgressBar;
 use safetensors::tensor::{serialize_to_file, Dtype as StDtype, View};
 use serde::Deserialize;
 use std::path::Path;
@@ -38,7 +39,7 @@ impl Default for GenerationConfig {
             temperature: 0.0,
             top_p: 0.95,
             repetition_penalty: 1.2,
-            min_new_tokens: 32,
+            min_new_tokens: 0,
         }
     }
 }
@@ -441,7 +442,12 @@ impl SopranoModel {
     /// Generate hidden states for generated tokens (last layer).
     ///
     /// Returns a tensor of shape `(T, hidden_size)`.
-    pub fn generate(&mut self, prompt: &str, cfg: &GenerationConfig) -> Result<GenerationResult> {
+    pub fn generate(
+        &mut self,
+        prompt: &str,
+        cfg: &GenerationConfig,
+        progress: Option<&ProgressBar>,
+    ) -> Result<GenerationResult> {
         let encoding = self
             .tokenizer
             .encode(prompt, true)
@@ -451,8 +457,10 @@ impl SopranoModel {
             return Err(candle_core::Error::Msg("empty prompt".to_string()));
         }
 
-        eprintln!("[GENERATE] Prompt tokens: {:?}", tokens);
-        eprintln!("[GENERATE] EOS token ID: {}", self.eos_token_id);
+        if self.debug_config.enabled {
+            eprintln!("[GENERATE] Prompt tokens: {:?}", tokens);
+            eprintln!("[GENERATE] EOS token ID: {}", self.eos_token_id);
+        }
 
         // Clear KV cache for a fresh generation.
         self.base.clear_kv_cache();
@@ -470,8 +478,10 @@ impl SopranoModel {
 
         // Prime cache with the prompt.
         let input = Tensor::new(tokens.as_slice(), &self.device)?.unsqueeze(0)?;
-        eprintln!("[GENERATE] Input tensor shape: {:?}", input.shape());
-        eprintln!("[GENERATE] Input tokens: {:?}", tokens);
+        if self.debug_config.enabled {
+            eprintln!("[GENERATE] Input tensor shape: {:?}", input.shape());
+            eprintln!("[GENERATE] Input tokens: {:?}", tokens);
+        }
 
         // Save input_ids in debug mode
         if self.debug_config.enabled {
@@ -487,7 +497,9 @@ impl SopranoModel {
 
         let hidden = self.base.forward(&input, 0, None)?; // (1, seq, hidden)
         let seq_len = hidden.dim(1)?;
-        eprintln!("[GENERATE] Hidden shape after prompt: {:?}", hidden.shape());
+        if self.debug_config.enabled {
+            eprintln!("[GENERATE] Hidden shape after prompt: {:?}", hidden.shape());
+        }
 
         let mut last_hidden = hidden.narrow(1, seq_len - 1, 1)?; // (1,1,hidden)
         last_hidden = last_hidden.squeeze(1)?; // (1, hidden)
@@ -496,28 +508,35 @@ impl SopranoModel {
         // Debug: Check logits statistics and top tokens
         let logits_f32 = logits.to_dtype(DType::F32)?;
         let logits_1d = logits_f32.squeeze(0)?;
-        let min_logit = logits_1d.min_all()?.to_scalar::<f32>()?;
-        let max_logit = logits_1d.max_all()?.to_scalar::<f32>()?;
-        eprintln!(
-            "[GENERATE] Logits range: [{:.4}, {:.4}]",
-            min_logit, max_logit
-        );
+        if self.debug_config.enabled {
+            let min_logit = logits_1d.min_all()?.to_scalar::<f32>()?;
+            let max_logit = logits_1d.max_all()?.to_scalar::<f32>()?;
+            eprintln!(
+                "[GENERATE] Logits range: [{:.4}, {:.4}]",
+                min_logit, max_logit
+            );
 
-        // Find top 5 tokens manually
-        let logits_vec: Vec<f32> = logits_1d.to_vec1()?;
-        let mut indexed: Vec<(usize, f32)> = logits_vec
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| (i, v))
-            .collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        eprintln!("[GENERATE] Top 5 tokens:");
-        for (i, (token_id, score)) in indexed.iter().take(5).enumerate() {
-            eprintln!("  {}. Token {}: logit={:.4}", i + 1, token_id, score);
+            // Find top 5 tokens manually
+            let logits_vec: Vec<f32> = logits_1d.to_vec1()?;
+            let mut indexed: Vec<(usize, f32)> = logits_vec
+                .iter()
+                .enumerate()
+                .map(|(i, &v)| (i, v))
+                .collect();
+            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            eprintln!("[GENERATE] Top 5 tokens:");
+            for (i, (token_id, score)) in indexed.iter().take(5).enumerate() {
+                eprintln!("  {}. Token {}: logit={:.4}", i + 1, token_id, score);
+            }
         }
 
         let mut generated_hidden: Vec<Tensor> = Vec::new();
         let mut finish = FinishReason::Length;
+
+        if let Some(progress) = progress {
+            progress.set_length(cfg.max_new_tokens as u64);
+            progress.set_position(0);
+        }
 
         for step in 0..cfg.max_new_tokens {
             // logits is (1, vocab) -> (vocab)
@@ -528,11 +547,22 @@ impl SopranoModel {
             }
             let next = logits_processor.sample(&logits_1d)?;
             tokens.push(next);
+            if let Some(progress) = progress {
+                progress.set_position((step + 1) as u64);
+                let noise = match step % 5 {
+                    0 => "fdasfdjasfdjf",
+                    1 => "zxvcvbnm!!!",
+                    2 => "qwertyuiop",
+                    3 => "asdjkl;;::",
+                    _ => "ping::pong",
+                };
+                progress.set_message(noise);
+            }
             let maybe_stop =
                 next == self.eos_token_id && generated_hidden.len() >= cfg.min_new_tokens;
 
             // Debug: print every 10 steps and when EOS is detected
-            if step % 10 == 0 || next == self.eos_token_id {
+            if self.debug_config.enabled && (step % 10 == 0 || next == self.eos_token_id) {
                 eprintln!(
                     "[GENERATE] step={}, next_token={}, eos={}, hidden_len={}, maybe_stop={}",
                     step,
@@ -587,12 +617,14 @@ impl SopranoModel {
             Tensor::stack(&generated_hidden, 0)?
         };
 
-        eprintln!(
-            "[GENERATE] Generated {} tokens. Finish reason: {:?}",
-            generated_hidden.len(),
-            finish
-        );
-        eprintln!("[GENERATE] All generated tokens: {:?}", &tokens[11..]); // Skip prompt tokens
+        if self.debug_config.enabled {
+            eprintln!(
+                "[GENERATE] Generated {} tokens. Finish reason: {:?}",
+                generated_hidden.len(),
+                finish
+            );
+            eprintln!("[GENERATE] All generated tokens: {:?}", &tokens[11..]); // Skip prompt tokens
+        }
 
         // Save final hidden states in debug mode
         if self.debug_config.enabled && self.debug_config.save_final && !generated_hidden.is_empty()

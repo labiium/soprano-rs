@@ -22,12 +22,13 @@ use clap::Parser;
 use hound::{WavSpec, WavWriter};
 use tokio::net::TcpListener;
 use tokio::signal;
-use tracing::{debug, error, info, warn, Level};
+use tracing::{error, info, warn, Level};
 
 use soprano::{
     cli_style::{
-        print_banner, print_box, print_devices_box, print_device_status, print_error, print_info,
-        print_section, print_success, print_usage_examples, print_warning,
+        print_banner, print_box, print_box_kv, print_compact_config, print_device_status,
+        print_devices_box, print_error, print_info, print_section, print_success,
+        print_usage_examples,
     },
     config::{
         init_tracing, load_dotenv, parse_device, Cli, Commands, DownloadArgs, GenerateArgs,
@@ -560,23 +561,23 @@ async fn verify_model(
 
 /// Run the devices subcommand
 async fn run_devices() -> Result<(), Box<dyn std::error::Error>> {
-    use soprano::device_detection::{Platform, DeviceType};
-    
+    use soprano::device_detection::Platform;
+
     // Print fancy banner
     print_banner();
-    
+
     // Get device info
     let platform = Platform::current();
     let devices = get_all_device_info();
     let recommended = get_recommended_device_type();
     let selected = auto_select_device();
-    
+
     // Build device list
     let device_list: Vec<(&str, bool)> = devices
         .iter()
         .map(|d| (d.name.as_str(), d.available))
         .collect();
-    
+
     // Print fancy devices box
     print_devices_box(
         platform.as_str(),
@@ -586,12 +587,12 @@ async fn run_devices() -> Result<(), Box<dyn std::error::Error>> {
             candle_core::Device::Cpu => "CPU",
             candle_core::Device::Cuda(_) => "CUDA",
             candle_core::Device::Metal(_) => "Metal",
-        }
+        },
     );
-    
+
     // Print usage examples
     print_usage_examples();
-    
+
     Ok(())
 }
 
@@ -601,11 +602,11 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
     print_banner();
     print_section("🎤  TTS Sample Generator");
 
+    let compact = args.compact || !args.verbose;
+    let show_progress = !args.no_progress;
+
     // Determine model path (always real model)
-    let model_path = match args
-        .model_path
-        .clone()
-        .or_else(get_default_model_path) {
+    let model_path = match args.model_path.clone().or_else(get_default_model_path) {
         Some(path) => path,
         None => {
             print_error("Model not found!");
@@ -616,14 +617,18 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
 
     // Determine device with auto-detection
     let device = if args.device == "auto" {
-        print_info("Auto-detecting best compute device...");
+        if !compact {
+            print_info("Auto-detecting best compute device...");
+        }
         let selected = auto_select_device();
         let name = match &selected {
             candle_core::Device::Cpu => "CPU",
             candle_core::Device::Cuda(_) => "CUDA (NVIDIA GPU)",
             candle_core::Device::Metal(_) => "Metal (Apple GPU)",
         };
-        print_success(&format!("Selected device: {}", name));
+        if !compact {
+            print_success(&format!("Selected device: {}", name));
+        }
         selected
     } else {
         let selected = parse_device(&args.device);
@@ -632,23 +637,46 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
             candle_core::Device::Cuda(_) => "CUDA",
             candle_core::Device::Metal(_) => "Metal",
         };
-        print_info(&format!("Using requested device: {}", name));
+        if !compact {
+            print_info(&format!("Using requested device: {}", name));
+        }
         selected
     };
 
     // Show configuration
-    println!("Configuration:");
-    println!("  Engine: {}", args.engine.as_str());
-    println!("  Mode: Real Model");
-    println!("  Model Path: {:?}", model_path);
-    println!("  Device: {:?}", device);
-    println!("  Sample Rate: {} Hz", args.sample_rate);
-    println!("  Temperature: {}", args.temperature);
-    println!("  Top-p: {}", args.top_p);
-    println!("  Repetition Penalty: {}", args.repetition_penalty);
-    println!("  Speed: {}", args.speed);
-    println!("  Workers: {}", args.workers);
-    println!("  Variations: {}", args.variations);
+    if compact {
+        let compact_items = vec![
+            ("Engine", args.engine.as_str().to_string()),
+            ("Device", format!("{:?}", device)),
+            ("SR", format!("{} Hz", args.sample_rate)),
+            ("Temp", format!("{}", args.temperature)),
+            ("Top-p", format!("{}", args.top_p)),
+            ("Speed", format!("{}", args.speed)),
+            ("Workers", format!("{}", args.workers)),
+        ];
+        print_compact_config(&compact_items);
+    } else {
+        let config_items = vec![
+            ("Engine".to_string(), args.engine.as_str().to_string()),
+            ("Mode".to_string(), "Real Model".to_string()),
+            ("Model Path".to_string(), format!("{:?}", model_path)),
+            ("Device".to_string(), format!("{:?}", device)),
+            (
+                "Sample Rate".to_string(),
+                format!("{} Hz", args.sample_rate),
+            ),
+            ("Temperature".to_string(), format!("{}", args.temperature)),
+            ("Top-p".to_string(), format!("{}", args.top_p)),
+            (
+                "Repetition Penalty".to_string(),
+                format!("{}", args.repetition_penalty),
+            ),
+            ("Speed".to_string(), format!("{}", args.speed)),
+            ("Workers".to_string(), format!("{}", args.workers)),
+            ("Variations".to_string(), format!("{}", args.variations)),
+        ];
+        print_box_kv("Configuration", &config_items);
+    }
 
     // Validate model path
     if !model_path.exists() {
@@ -705,7 +733,9 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
         ]
     };
 
-    println!("Processing {} text samples...", texts.len());
+    if !compact {
+        print_info(&format!("Processing {} text samples...", texts.len()));
+    }
     println!();
 
     // Create output directory if needed
@@ -755,6 +785,7 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
                 &model_path,
                 &device,
                 args.workers,
+                show_progress,
             )
             .await
             {
@@ -767,28 +798,42 @@ async fn run_generate(args: GenerateArgs) -> Result<(), Box<dyn std::error::Erro
         }
     }
 
-    println!();
-    println!("╔════════════════════════════════════════╗");
-    println!("║           Generation Complete          ║");
-    println!("╚════════════════════════════════════════╝");
-    println!();
-    println!("Results:");
-    println!("  ✓ Successful: {}", success_count);
-    if error_count > 0 {
-        println!("  ✗ Failed: {}", error_count);
-    }
-    println!();
+    if compact {
+        if success_count > 0 {
+            print_success(&format!(
+                "Generated {} sample(s) → {:?}",
+                success_count, output_dir
+            ));
+        }
+        if error_count > 0 {
+            print_error(&format!("Failed: {}", error_count));
+        }
+    } else {
+        let summary_items = vec![
+            ("Successful".to_string(), format!("{}", success_count)),
+            ("Failed".to_string(), format!("{}", error_count)),
+        ];
+        print_box_kv("Generation Complete", &summary_items);
 
-    if success_count > 0 {
-        println!("Output location: {:?}", output_dir);
-        println!();
-        println!("You can play the generated files with:");
-        println!("  - aplay sample.wav    (Linux ALSA)");
-        println!("  - afplay sample.wav   (macOS)");
-        println!("  - ffplay sample.wav   (cross-platform)");
-        println!();
-
-        println!("Note: Audio generated using the real Soprano TTS model.");
+        if success_count > 0 {
+            let footer_items = vec![
+                ("Output location".to_string(), format!("{:?}", output_dir)),
+                (
+                    "Play (Linux ALSA)".to_string(),
+                    "aplay sample.wav".to_string(),
+                ),
+                ("Play (macOS)".to_string(), "afplay sample.wav".to_string()),
+                (
+                    "Play (cross-platform)".to_string(),
+                    "ffplay sample.wav".to_string(),
+                ),
+                (
+                    "Note".to_string(),
+                    "Audio generated using the real Soprano TTS model.".to_string(),
+                ),
+            ];
+            print_box_kv("Results", &footer_items);
+        }
     }
 
     Ok(())
@@ -814,7 +859,7 @@ async fn generate_sample(
     output_path: &PathBuf,
     sample_rate: u32,
     temperature: f32,
-    max_new_tokens: usize,
+    max_new_tokens: Option<usize>,
     top_p: f32,
     repetition_penalty: f32,
     speed: f32,
@@ -823,6 +868,7 @@ async fn generate_sample(
     model_path: &PathBuf,
     device: &candle_core::Device,
     workers: usize,
+    show_progress: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
@@ -852,6 +898,7 @@ async fn generate_sample(
         repetition_penalty,
         speed,
         verbose,
+        show_progress,
     )
     .await?;
 
@@ -894,6 +941,14 @@ fn preprocess_text(text: &str) -> String {
     sentences.join(" ")
 }
 
+/// Estimate an upper bound for token generation based on input length.
+/// Uses a conservative heuristic to avoid premature truncation.
+fn estimate_max_new_tokens(text: &str) -> usize {
+    let char_count = text.chars().count().max(1);
+    let base = (char_count as f32 * 1.8).ceil() as usize;
+    base.clamp(128, 4096)
+}
+
 /// Generate audio using the real TTS model
 #[allow(clippy::too_many_arguments)]
 async fn generate_with_model(
@@ -902,11 +957,12 @@ async fn generate_with_model(
     device: candle_core::Device,
     workers: usize,
     temperature: f32,
-    max_new_tokens: usize,
+    max_new_tokens: Option<usize>,
     top_p: f32,
     repetition_penalty: f32,
     speed: f32,
     verbose: bool,
+    show_progress: bool,
 ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     if verbose {
         println!("Loading model from {:?}...", model_path);
@@ -915,12 +971,13 @@ async fn generate_with_model(
     }
 
     // Create generation config
+    let max_new_tokens = max_new_tokens.unwrap_or_else(|| estimate_max_new_tokens(text));
     let gen_config = GenerationConfig {
         max_new_tokens,
         temperature,
         top_p,
         repetition_penalty,
-        min_new_tokens: 32,
+        min_new_tokens: 0,
     };
 
     // Build TTS engine
@@ -930,6 +987,7 @@ async fn generate_with_model(
         .with_device(device)
         .with_workers(workers)
         .with_generation_config(gen_config)
+        .with_progress(show_progress)
         .build()
         .await
         .map_err(|e| format!("Failed to initialize TTS engine: {}", e))?;

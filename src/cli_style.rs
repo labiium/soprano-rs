@@ -72,6 +72,40 @@ pub fn print_box(title: &str, content: &[(&str, &str)]) {
     println!("╚{}╝", "═".repeat(width));
 }
 
+/// Print a styled box with owned key/value strings
+pub fn print_box_kv(title: &str, content: &[(String, String)]) {
+    let width = 60;
+    let title_width = title.len() + 4;
+    let padding = (width - title_width) / 2;
+
+    // Top border
+    println!("╔{}╗", "═".repeat(width));
+
+    // Title
+    print!("║{}{} ║", " ".repeat(padding), title.bright_cyan().bold());
+    if (width - title_width) % 2 == 1 {
+        print!(" ");
+    }
+    println!();
+
+    // Separator
+    println!("╠{}╣", "═".repeat(width));
+
+    // Content
+    for (label, value) in content {
+        let line = if supports_color() {
+            format!("  {}: {}", label.bright_blue(), value.bright_white())
+        } else {
+            format!("  {}: {}", label, value)
+        };
+        let spaces = width.saturating_sub(line.len() + 2);
+        println!("║{}{}║", line, " ".repeat(spaces));
+    }
+
+    // Bottom border
+    println!("╚{}╝", "═".repeat(width));
+}
+
 /// Print a section header
 pub fn print_section(title: &str) {
     if supports_color() {
@@ -82,6 +116,25 @@ pub fn print_section(title: &str) {
         println!("\n{}", "━".repeat(60));
         println!("  {}", title);
         println!("{}", "━".repeat(60));
+    }
+}
+
+/// Print a compact single-line configuration summary
+pub fn print_compact_config(items: &[(&str, String)]) {
+    if supports_color() {
+        let parts: Vec<String> = items
+            .iter()
+            .map(|(label, value)| {
+                format!("{} {}", label.bright_blue().bold(), value.bright_white())
+            })
+            .collect();
+        println!("{}", parts.join("  "));
+    } else {
+        let parts: Vec<String> = items
+            .iter()
+            .map(|(label, value)| format!("{} {}", label, value))
+            .collect();
+        println!("{}", parts.join("  "));
     }
 }
 

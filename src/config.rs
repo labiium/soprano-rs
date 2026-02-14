@@ -335,9 +335,9 @@ pub struct GenerateArgs {
     #[arg(short = 'T', long, default_value_t = 0.0)]
     pub temperature: f32,
 
-    /// Maximum new tokens to generate
-    #[arg(long, default_value_t = 128)]
-    pub max_new_tokens: usize,
+    /// Maximum new tokens to generate (optional override)
+    #[arg(long)]
+    pub max_new_tokens: Option<usize>,
 
     /// Top-p for sampling
     #[arg(long, default_value_t = 0.95)]
@@ -362,6 +362,14 @@ pub struct GenerateArgs {
     /// Print verbose output
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Disable progress bars
+    #[arg(long)]
+    pub no_progress: bool,
+
+    /// Compact output (less verbose UI)
+    #[arg(long)]
+    pub compact: bool,
 }
 
 /// Streaming configuration
@@ -440,7 +448,7 @@ impl Default for GenerationConfig {
             temperature: 0.0,
             top_p: 0.95,
             repetition_penalty: 1.2,
-            min_new_tokens: 32,
+            min_new_tokens: 0,
         }
     }
 }

@@ -6,7 +6,7 @@
 //! - Linux: CUDA > CPU
 //! - Windows: CUDA > CPU
 //!
-//! MLX support will be added when Candle framework supports it.
+//! MLX is not supported (Metal is the only Apple GPU backend today).
 
 use candle_core::Device;
 use tracing::{debug, info, warn};
@@ -25,7 +25,6 @@ pub struct DeviceInfo {
 pub enum DeviceType {
     Cuda,
     Metal,
-    Mlx, // Reserved for future MLX support
     Cpu,
 }
 
@@ -42,7 +41,6 @@ impl DeviceType {
         match self {
             DeviceType::Cuda => "CUDA",
             DeviceType::Metal => "Metal",
-            DeviceType::Mlx => "MLX",
             DeviceType::Cpu => "CPU",
         }
     }
@@ -111,15 +109,6 @@ pub fn get_all_device_info() -> Vec<DeviceInfo> {
         } else {
             Some("Metal not available on this system".to_string())
         },
-    });
-
-    // MLX (placeholder for future support)
-    devices.push(DeviceInfo {
-        device_type: DeviceType::Mlx,
-        name: "Apple MLX".to_string(),
-        platform,
-        available: false,
-        error_message: Some("MLX support coming soon".to_string()),
     });
 
     // CPU is always available
@@ -280,10 +269,6 @@ pub fn parse_device_auto(device_str: &str) -> Device {
                 }
             }
         }
-        "mlx" => {
-            warn!("MLX support not yet implemented, falling back to auto-selection");
-            auto_select_device()
-        }
         "cpu" => {
             info!("Using CPU device (as requested)");
             Device::Cpu
@@ -343,7 +328,6 @@ mod tests {
     fn test_device_type_as_str() {
         assert_eq!(DeviceType::Cuda.as_str(), "CUDA");
         assert_eq!(DeviceType::Metal.as_str(), "Metal");
-        assert_eq!(DeviceType::Mlx.as_str(), "MLX");
         assert_eq!(DeviceType::Cpu.as_str(), "CPU");
     }
 
